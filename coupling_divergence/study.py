@@ -76,8 +76,13 @@ def _git(args, cwd=None):
 # and is resolved per repo in _lang (a header counts as C++ only when the tree carries a
 # C++ marker, the way GitHub's Linguist resolves it). Mapping it blindly to C is what made
 # header-heavy C++ projects (mlx, WindowsAppSDK) measure as C.
-_EXT_LANG = {".java": "java", ".py": "python", ".js": "js", ".jsx": "js", ".ts": "ts",
-             ".tsx": "ts", ".go": "go", ".c": "c", ".cc": "c++", ".cpp": "c++",
+# Values are the canonical language keys used everywhere else (sample.LANGS, the grow
+# targets, the paper): e.g. "javascript", not "js". A mismatch here silently breaks the
+# per-language accounting -- grow counts usable repos by this label, so a label that no
+# stratum uses can never reach its target (the .js/.ts -> js/ts bug that looped the sampler).
+_EXT_LANG = {".java": "java", ".py": "python", ".js": "javascript", ".jsx": "javascript",
+             ".ts": "typescript", ".tsx": "typescript",
+             ".go": "go", ".c": "c", ".cc": "c++", ".cpp": "c++",
              ".cxx": "c++", ".c++": "c++", ".hpp": "c++", ".hh": "c++", ".hxx": "c++",
              ".cs": "c#", ".rb": "ruby", ".php": "php", ".rs": "rust", ".kt": "kotlin",
              ".swift": "swift", ".scala": "scala"}
