@@ -72,17 +72,38 @@ def _git(args, cwd=None):
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
 
 
+# Extension -> language. `.h` is deliberately absent: it is ambiguous between C and C++
+# and is resolved per repo in _lang (a header counts as C++ only when the tree carries a
+# C++ marker, the way GitHub's Linguist resolves it). Mapping it blindly to C is what made
+# header-heavy C++ projects (mlx, WindowsAppSDK) measure as C.
+_EXT_LANG = {".java": "java", ".py": "python", ".js": "js", ".jsx": "js", ".ts": "ts",
+             ".tsx": "ts", ".go": "go", ".c": "c", ".cc": "c++", ".cpp": "c++",
+             ".cxx": "c++", ".c++": "c++", ".hpp": "c++", ".hh": "c++", ".hxx": "c++",
+             ".cs": "c#", ".rb": "ruby", ".php": "php", ".rs": "rust", ".kt": "kotlin",
+             ".swift": "swift", ".scala": "scala"}
+
+
 def _lang(root: str) -> str:
-    c = Counter()
+    """Dominant language of a checkout, by source-file count aggregated into languages.
+
+    Aggregating by language rather than by raw extension fixes two mislabels: the js/ts
+    family split across .js/.jsx and .ts/.tsx, and ambiguous C/C++ headers. A `.h` is
+    counted as C++ when the tree holds any unambiguous C++ file (.cpp/.cc/.hpp/...) and as
+    C otherwise, so a C++ project whose headers outnumber its .cpp files no longer reads as
+    C. Unknown extensions fall back to the bare suffix as their own bucket."""
+    ext_counts = Counter()
     for rel in extract.source_files(root):
-        c[os.path.splitext(rel)[1].lower()] += 1
-    if not c:
+        ext_counts[os.path.splitext(rel)[1].lower()] += 1
+    if not ext_counts:
         return "?"
-    ext = c.most_common(1)[0][0]
-    return {".java": "java", ".py": "python", ".js": "js", ".jsx": "js", ".ts": "ts",
-            ".tsx": "ts", ".go": "go", ".c": "c", ".cc": "c++", ".cpp": "c++", ".h": "c",
-            ".cs": "c#", ".rb": "ruby", ".php": "php", ".rs": "rust", ".kt": "kotlin",
-            ".swift": "swift", ".scala": "scala"}.get(ext, ext.lstrip("."))
+    h_lang = "c++" if any(ext_counts.get(e) for e in
+                          (".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx")) else "c"
+    by_lang = Counter()
+    for ext, n in ext_counts.items():
+        lang = h_lang if ext == ".h" else _EXT_LANG.get(ext, ext.lstrip("."))
+        by_lang[lang] += n
+    # Tie-break deterministically by language name so re-runs are stable.
+    return max(sorted(by_lang), key=by_lang.get)
 
 
 def _pmd_gods(pmd: str, srcdir: str) -> set | None:
@@ -489,9 +510,15 @@ HEADLINE (this run)
 
 REPRODUCE
   pip install coupling-divergence   (or: pip install -e . from the Coupling Divergence source)
+  coupling-divergence grow --anc <out dir>
+      Reproduces the whole study with built-in defaults: seeded, stratified, grown until
+      each language reaches its usable-repo target. Prints "CANONICAL STUDY CONFIGURATION"
+      when no default is overridden. A `pmd` on PATH is used automatically for the Java
+      GodClass reference.
   coupling-divergence study --repos <the repo URLs in this table> --anc <out dir>
-  Each clone is shallow, measured, and deleted; only the recorded commit is kept. Re-running
-  is resumable. For the Java PMD reference, pass --pmd <pmd binary>.
+      Re-measures exactly the repositories in this table instead of sampling afresh.
+  Each clone is shallow, measured, and deleted; only the recorded commit is kept. Both are
+  resumable (re-running skips repos already in the output).
 """
 
 

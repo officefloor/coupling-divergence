@@ -113,40 +113,62 @@ appears is the AI pipeline's own gradual accretion, which is where to study it i
 
 ## Reproduce the study
 
-The detection result is reproducible by anyone, with nothing kept on disk but the recorded
-commits. Each repo is shallow-cloned at its default branch's latest commit, measured, the
-commit sha recorded in the output JSON, and the clone deleted. The source of truth is the
-public repositories at those commits.
+The whole study — sampling, measurement and statistics — is **one command with no
+arguments**:
 
 ```
 git clone <this repo> && cd coupling-divergence
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
-coupling-divergence study --repos repos.txt --anc anc/coupling-divergence-study    # progress to console
-coupling-divergence study --repos repos.txt --anc anc/coupling-divergence-study --pmd /path/to/pmd   # + Java GodClass
+coupling-divergence grow --anc anc/coupling-divergence-study     # that's it
 ```
 
-It prints per repo as it goes (`[i/N] name: cloning ...` then the measured line), is
-**resumable** (re-running skips repos already in the output), and scales by adding URLs to
-`repos.txt`. Each row records `commit` and `date`, so a run is pinned to exact revisions.
+`grow` reproduces the published run exactly. Every study parameter is a built-in default
+(`coupling_divergence/grow.py`, the `STUDY` dict), so running it bare is the canonical
+reproduction: seed `1`, a target of **30 usable repositories per language** (up to **40**
+for the noisy ones, until each language's 95% interval half-width on log-lift is ≤ `0.2`),
+a substance floor of **≥ 50 functions and a ≥ 15-file class universe** so near-empty repos
+cannot enter the analysis, across **11 languages × 3 popularity tiers**. It prints
+`=> CANONICAL STUDY CONFIGURATION` when no default has been overridden, so a replicator can
+see at a glance they are running the same thing. A `pmd` on `PATH` is picked up
+automatically for the Java GodClass reference; without it the Java rows simply omit that
+comparison.
 
-### How the study population was chosen (the honest part)
+Because a repository's language and whether it yields a usable measurement are only known
+*after* it is cloned and measured (a GitHub "C++" repo often measures as C, half the Ruby
+draws are tiny gems), `grow` couples sampling to measurement: it draws a seeded batch,
+measures it, and keeps topping up only the languages still short, round by round, until
+every language meets the target or its population is exhausted (recorded honestly in the
+manifest, never hidden). Each repo is shallow-cloned at its latest default-branch commit,
+measured, the commit sha recorded, and the clone deleted — nothing is kept on disk but the
+recorded commits, and the public repositories at those commits are the source of truth. The
+run prints per repo as it goes, is **resumable** (re-running skips repos already in the
+output), and writes `repos.txt`, `sampling-manifest.json`, the results JSON/CSV and (with
+`--anc`) the self-contained ancillary package.
+
+To run a *different* study, override a default — e.g. `--target 20`, `--seed 2`,
+`--langs java,go` — and `grow` prints `=> non-default parameters: this is a DIFFERENT
+study` so the change is never silent.
+
+### How the study population is chosen (the honest part)
 
 The author's ecosystem is one of the things this metric is applied to, so the only sound
 defence against self-serving selection is to put the sampling in code and let anyone rerun
-it. `coupling-divergence sample` draws the population from the GitHub search API, stratified
-by **language** and by **popularity tier** (a proxy for the spread from mature to rough
-code), taking a seeded random subset within each stratum:
+it. The sampler draws from the GitHub search API, stratified by **language** and by
+**popularity tier** (a proxy for the spread from mature to rough code), with a seeded random
+pick within each stratum; `grow` drives that draw adaptively to the per-language target.
+`sampling-manifest.json` is the auditable frame: it records the seed, the date, every search
+query, how many repositories matched each stratum (so the selection probability is visible),
+which were chosen with their star counts, and which languages (if any) exhausted their
+population before the target. `repos-exemplar.txt` keeps the earlier hand-picked well-known
+set for sanity.
+
+The older fixed-size sampler is still available for a flat draw:
 
 ```
 coupling-divergence sample --k 3 --seed 1 -o repos.txt -m sampling-manifest.json
+coupling-divergence study  --repos repos.txt --anc anc/   # measure a fixed list, resumable
 ```
-
-The committed `repos.txt` (99 repos: 11 languages x 3 tiers x 3) was produced exactly this
-way. `sampling-manifest.json` is the auditable frame: it records the seed, the date, every
-search query, how many repositories matched each stratum (so the selection probability is
-visible), and which were chosen with their star counts. `repos-exemplar.txt` keeps the
-earlier hand-picked well-known set for sanity.
 
 The sampler **excludes the author's own GitHub owners** (`officefloor`, `sagenschneider`)
 by construction, applied both as a `-user:` query qualifier and as a post-fetch filter and

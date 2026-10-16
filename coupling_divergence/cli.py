@@ -13,7 +13,7 @@ import json
 import os
 import sys
 
-from . import extract, history, evaluate, study, sample
+from . import extract, history, evaluate, study, sample, grow
 
 
 def _report(repo: str, top: int, include_tests: bool) -> int:
@@ -67,6 +67,7 @@ def _evaluate(repos: list[str], samples: int, out: str | None, include_tests: bo
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv_list = list(sys.argv[1:] if argv is None else argv)
     ap = argparse.ArgumentParser(prog="coupling-divergence", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--include-tests", action="store_true",
@@ -100,6 +101,14 @@ def main(argv: list[str] | None = None) -> int:
     sm.add_argument("--pool", type=int, default=100, help="candidates fetched per stratum")
     sm.add_argument("--langs", default=",".join(sample.LANGS))
     sm.add_argument("--tiers", default="high,mid,low")
+    sub.add_parser("grow", add_help=False, help="adaptive seeded sample: keep topping up "
+                   "until each language reaches a usable-repo target. Run with no arguments "
+                   "to reproduce the published study (needs the gh CLI). "
+                   "`grow -h` for its options.")
+    # `grow` owns all its defaults in grow.STUDY (single source of truth), so it is delegated
+    # the raw argv rather than re-declaring every option here where the two could drift.
+    if argv_list and argv_list[0] == "grow":
+        return grow.main(argv_list[1:])
     args = ap.parse_args(argv)
 
     if args.cmd == "report":
