@@ -12,3 +12,10 @@ __pycache__/
 
 # Generated ancillary-data packages (the paper attachment is produced per run).
 /anc/
+
+# LaTeX build intermediates (the paper sources and preserved data ARE committed).
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/build.log

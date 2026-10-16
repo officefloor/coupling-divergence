@@ -1,0 +1,8 @@
+Coupling-divergence detection study -- PILOT RUN stats (paper/data/pilot-2026-10-16/)
+Generated from study.json. Clean-run values will replace these in stats.tex.
+
+sampled=99 measured=98 errored=1 langs=11 tiers=3
+total functions=597117 files=70425 wmc_gods=12479
+CLASS vs WMC>=47             n=79 lift=2.81 CI[2.54,3.10] sig=57 need=21
+METHOD vs CC>=14             n=76 lift=4.40 CI[3.88,4.98] sig=50 need=30
+CLASS vs PMD GodClass (java) n=7 lift=3.20 CI[2.54,4.05] sig=5 need=10
