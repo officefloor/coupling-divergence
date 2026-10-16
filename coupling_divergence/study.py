@@ -175,9 +175,9 @@ def run(repos: list[str], out_path: str, pmd: str | None, keep: bool) -> None:
             results = {r["repo"]: r for r in json.load(open(out_path))}
         except Exception:
             results = {}
-    work = tempfile.mkdtemp(prefix="godwatch-study-")
+    work = tempfile.mkdtemp(prefix="cdiv-study-")
     total = len(repos)
-    print(f"GodWatch study: {total} repositories | references: class WMC>=47, "
+    print(f"Coupling Divergence study: {total} repositories | references: class WMC>=47, "
           f"method CC>={CC_GOD}" + (", Java PMD GodClass" if pmd else "") + "\n"
           f"each repo is shallow-cloned (latest default branch), measured, its commit "
           f"recorded, then deleted. output -> {out_path}\n", flush=True)
@@ -330,7 +330,7 @@ def write_anc(rows: list[dict], anc_dir: str) -> None:
     print(f"wrote ancillary-data package -> {anc_dir}/ (results.csv, README.txt)")
 
 
-_ANC_README = """GodWatch Coupling Divergence: god-class/method detection study (ancillary data)
+_ANC_README = """Coupling Divergence: god-class/method detection study (ancillary data)
 ================================================================================
 
 WHAT THIS IS
@@ -382,8 +382,8 @@ HEADLINE (this run)
   before-the-fact predictor of a forming god (a separate, unproven claim).
 
 REPRODUCE
-  pip install godwatch   (or: pip install -e . from the GodWatch source)
-  godwatch study --repos <the repo URLs in this table> --anc <out dir>
+  pip install coupling-divergence   (or: pip install -e . from the Coupling Divergence source)
+  coupling-divergence study --repos <the repo URLs in this table> --anc <out dir>
   Each clone is shallow, measured, and deleted; only the recorded commit is kept. Re-running
   is resumable. For the Java PMD reference, pass --pmd <pmd binary>.
 """
@@ -391,7 +391,7 @@ REPRODUCE
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("-o", "--out", default="godwatch_study.json")
+    ap.add_argument("-o", "--out", default="coupling_divergence_study.json")
     ap.add_argument("--repos", default=None, help="file with one git URL per line")
     ap.add_argument("--pmd", default=None, help="PMD binary, for the Java GodClass reference")
     ap.add_argument("--anc", default=None, help="write the ancillary-data package here "
@@ -409,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("-o", "--out", default="godwatch_study.json")
+    ap.add_argument("-o", "--out", default="coupling_divergence_study.json")
     ap.add_argument("--repos", default=None, help="file with one git URL per line")
     ap.add_argument("--pmd", default=None, help="PMD binary, for the Java GodClass reference")
     ap.add_argument("--keep", action="store_true", help="do not delete clones")

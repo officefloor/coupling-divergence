@@ -1,9 +1,9 @@
-# GodWatch
+# coupling-divergence
 
 Watch coupling divergence to catch a god class **before it forms**.
 
 A god class is usually defined by thresholds measured after the damage is done: a class is
-flagged once it is already large, low-cohesion and reaching into everyone's data. GodWatch
+flagged once it is already large, low-cohesion and reaching into everyone's data. coupling-divergence
 measures the mechanism instead of the symptom: it finds the method that manufactures more
 coupling than it receives, the orchestrator everything piles onto.
 
@@ -18,11 +18,11 @@ What is established and what is not, measured not asserted:
   2000 to 10000 commits of real library history that lead did not replicate: the outlier
   tended to coincide with or lag the size threshold. The leading-indicator claim is
   therefore scoped to gradual single-locus accretion and is still under validation; see
-  `godwatch evaluate` and the note in Status.
+  `coupling-divergence evaluate` and the note in Status.
 
 It is standalone and language-independent. [lizard](https://github.com/terryyin/lizard)
 supplies the multi-language function list, cyclomatic complexity and line ranges; every
-measure above lizard is lexical, so GodWatch runs on any language lizard parses with no
+measure above lizard is lexical, so coupling-divergence runs on any language lizard parses with no
 per-language call-graph analyser. (Same substrate as
 [impact-gate](https://github.com/officefloor/ImpactGate).)
 
@@ -57,7 +57,7 @@ Lanza-Marinescu god-class size threshold is `WMC >= 47`.
 
 The canonical information-flow metric (Henry & Kafura, 1981) is `length × (fan-in ×
 fan-out)²`, a symmetric **product**. A product cannot see a source: a method with fan-in
-zero, such as a request handler the framework calls, scores zero. GodWatch uses a
+zero, such as a request handler the framework calls, scores zero. coupling-divergence uses a
 directional **difference** built to find sources, so it flags the entry handler that the
 product misses. It is also threshold-free, where the classic god-class detectors gate on a
 cohesion term (`TCC < 1/3`) that dependency injection defeats, since a shared injected
@@ -66,9 +66,9 @@ service makes an enormous class look cohesive.
 ## Use
 
 ```
-godwatch report   <repo>              # areas of concern at HEAD: the forming gods
-godwatch collect  <repo> -o hist.json # the divergence trajectory over sampled history
-godwatch evaluate <repo> [repo ...]   # lead-lag: does divergence predict the god first
+coupling-divergence report   <repo>              # areas of concern at HEAD: the forming gods
+coupling-divergence collect  <repo> -o hist.json # the divergence trajectory over sampled history
+coupling-divergence evaluate <repo> [repo ...]   # lead-lag: does divergence predict the god first
 ```
 
 `report` ranks functions by generation and marks each as a god already, a forming god (an
@@ -119,11 +119,11 @@ commit sha recorded in the output JSON, and the clone deleted. The source of tru
 public repositories at those commits.
 
 ```
-git clone <this repo> && cd GodWatch
+git clone <this repo> && cd coupling-divergence
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
-godwatch study --repos repos.txt --anc anc/godwatch-study    # progress to console
-godwatch study --repos repos.txt --anc anc/godwatch-study --pmd /path/to/pmd   # + Java GodClass
+coupling-divergence study --repos repos.txt --anc anc/coupling-divergence-study    # progress to console
+coupling-divergence study --repos repos.txt --anc anc/coupling-divergence-study --pmd /path/to/pmd   # + Java GodClass
 ```
 
 It prints per repo as it goes (`[i/N] name: cloning ...` then the measured line), is
@@ -155,7 +155,7 @@ C and Python. Exact commits are in the committed `example-study.json`.
 
 ## For ImpactGate: per-change placement check
 
-`godwatch/extract.py` is vendored into ImpactGate as `impact_gate/core/generation.py`, and
+`coupling_divergence/extract.py` is vendored into ImpactGate as `impact_gate/core/generation.py`, and
 `impact_gate/placement_check.py` uses it to flag, for a change request, the added or mutated
 methods that are generation outliers in the resulting tree (a coupling vortex), reported
 beside the impact score as a separate axis. See `impact_gate/tests/test_placement_check.py`.

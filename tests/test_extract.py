@@ -21,7 +21,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from godwatch import extract
+from coupling_divergence import extract
 
 SRC = {
     "Owner.java": """package t;
@@ -55,7 +55,7 @@ EXPECTED_GAIN = {"handle": 5, "validate": 0, "enrich": 0, "save": 0, "tag": 0}
 
 
 def _tree():
-    root = tempfile.mkdtemp(prefix="godwatch_test_")
+    root = tempfile.mkdtemp(prefix="coupling_divergence_test_")
     for name, body in SRC.items():
         with open(os.path.join(root, name), "w") as fh:
             fh.write(body)

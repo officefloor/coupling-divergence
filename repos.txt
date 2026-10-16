@@ -1,4 +1,4 @@
-# Repositories for `godwatch study --repos repos.txt`.
+# Repositories for `coupling-divergence study --repos repos.txt`.
 # One git URL per line; the default branch's latest commit is used and recorded.
 # Add your own; the study is bounded by disk only (each clone is shallow and deleted).
 # --- java ---

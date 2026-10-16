@@ -61,7 +61,7 @@ def walk(repo: str, samples: int = 40, include_tests: bool = False,
     file -> total-CC map; `outlier_files` the files holding a gain outlier; `top_by_file`
     the (name, gain) of each file's top generator, for the files that have one."""
     rows = sample(commit_list(repo), samples)
-    root = work_root or tempfile.mkdtemp(prefix="godwatch-hist-")
+    root = work_root or tempfile.mkdtemp(prefix="cdiv-hist-")
     os.makedirs(root, exist_ok=True)
     series = []
     for i, (sha, t) in enumerate(rows):

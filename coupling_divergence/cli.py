@@ -1,8 +1,8 @@
 """GodWatch command line.
 
-  godwatch report   <repo>            areas of concern at HEAD (the forming gods)
-  godwatch collect  <repo> [-o f.json]  the divergence trajectory over sampled history
-  godwatch evaluate <repo> [repo ...]   lead-lag: does divergence predict the god first
+  coupling-divergence report   <repo>            areas of concern at HEAD (the forming gods)
+  coupling-divergence collect  <repo> [-o f.json]  the divergence trajectory over sampled history
+  coupling-divergence evaluate <repo> [repo ...]   lead-lag: does divergence predict the god first
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def _evaluate(repos: list[str], samples: int, out: str | None, include_tests: bo
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="godwatch", description=__doc__,
+    ap = argparse.ArgumentParser(prog="coupling-divergence", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--include-tests", action="store_true",
                     help="include test directories (excluded by default)")
@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("-o", "--out", default=None)
     st = sub.add_parser("study", help="multi-language detection study vs textbook gods "
                         "(clones latest default branch, records the commit, deletes clone)")
-    st.add_argument("-o", "--out", default="godwatch_study.json")
+    st.add_argument("-o", "--out", default="coupling-divergence_study.json")
     st.add_argument("--repos", default=None, help="file with one git URL per line")
     st.add_argument("--pmd", default=None, help="PMD binary, for the Java GodClass reference")
     st.add_argument("--anc", default=None, help="write the ancillary-data package here "
