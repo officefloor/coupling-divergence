@@ -98,11 +98,17 @@ def _pmd_gods(pmd: str, srcdir: str) -> set | None:
 
 
 def _enrich(outset: set, godset: set, universe: set) -> dict:
-    base = len(universe & godset) / len(universe) if universe else 0
+    inter = universe & godset
+    base = len(inter) / len(universe) if universe else 0
     cond = len(outset & godset) / len(outset) if outset else None
     lift = round(cond / base, 2) if (base and cond is not None) else None
     recall = round(len(outset & godset) / len(godset), 2) if godset else None
-    return {"lift": lift, "recall": recall, "n_god": len(godset), "n_out": len(outset),
+    # n_god is the full god count (recall denominator); n_god_univ is the gods that lie
+    # inside the tested universe (the generators). A god with no internal-call generation
+    # is not a generator, so n_god can exceed the universe; the Fisher table needs the
+    # universe-restricted count to stay consistent.
+    return {"lift": lift, "recall": recall, "n_god": len(godset),
+            "n_god_univ": len(inter), "n_out": len(outset),
             "n_overlap": len(outset & godset), "n_univ": len(universe)}
 
 
@@ -123,12 +129,18 @@ def fisher_greater(a: int, b: int, c: int, d: int):
 
 
 def _fisher_from(block: dict):
-    """Fisher p from an `_enrich` block's counts."""
+    """Fisher p from an `_enrich` block's counts. The 2x2 table is built over the tested
+    universe, so it uses the gods WITHIN that universe (n_god_univ), not the full god count,
+    which can exceed the universe. Older blocks lack n_god_univ, so the god count is clamped
+    to the largest value that keeps the table consistent (every cell non-negative)."""
     if not block or block.get("n_univ") in (None, 0):
         return None
-    a = block["n_overlap"]
-    return fisher_greater(a, block["n_out"] - a, block["n_god"] - a,
-                          block["n_univ"] - block["n_out"] - block["n_god"] + a)
+    a, n, r1 = block["n_overlap"], block["n_univ"], block["n_out"]
+    g = block.get("n_god_univ")
+    if g is None:
+        g = block["n_god"]
+    g = max(a, min(g, n - r1 + a))          # no-op for correct data; guards legacy blocks
+    return fisher_greater(a, r1 - a, g - a, n - r1 - g + a)
 
 
 _APP_FILES = ("Dockerfile", "docker-compose.yml", "docker-compose.yaml", "Procfile")
