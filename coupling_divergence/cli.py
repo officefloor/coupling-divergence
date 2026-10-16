@@ -1,8 +1,10 @@
-"""GodWatch command line.
+"""coupling-divergence command line.
 
-  coupling-divergence report   <repo>            areas of concern at HEAD (the forming gods)
+  coupling-divergence report   <repo>              areas of concern at HEAD (the forming gods)
   coupling-divergence collect  <repo> [-o f.json]  the divergence trajectory over sampled history
   coupling-divergence evaluate <repo> [repo ...]   lead-lag: does divergence predict the god first
+  coupling-divergence study    [--repos f]         multi-language detection study vs textbook gods
+  coupling-divergence sample   [--k N --seed S]    seeded stratified GitHub sample -> repos + manifest
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import json
 import os
 import sys
 
-from . import extract, history, evaluate, study
+from . import extract, history, evaluate, study, sample
 
 
 def _report(repo: str, top: int, include_tests: bool) -> int:
@@ -89,6 +91,15 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--anc", default=None, help="write the ancillary-data package here "
                     "(results.csv + README.txt)")
     st.add_argument("--keep", action="store_true", help="do not delete clones")
+    sm = sub.add_parser("sample", help="seeded stratified GitHub sample (needs the gh CLI) "
+                        "-> repos list + auditable manifest")
+    sm.add_argument("-o", "--out", default="repos.txt")
+    sm.add_argument("-m", "--manifest", default="sampling-manifest.json")
+    sm.add_argument("--k", type=int, default=3, help="repos per (language, tier) stratum")
+    sm.add_argument("--seed", type=int, default=1)
+    sm.add_argument("--pool", type=int, default=100, help="candidates fetched per stratum")
+    sm.add_argument("--langs", default=",".join(sample.LANGS))
+    sm.add_argument("--tiers", default="high,mid,low")
     args = ap.parse_args(argv)
 
     if args.cmd == "report":
@@ -107,6 +118,10 @@ def main(argv: list[str] | None = None) -> int:
             rows = list({r["repo"]: r for r in _json.load(open(args.out))}.values())
             study.write_anc(rows, args.anc)
         return 0
+    if args.cmd == "sample":
+        return sample.main(["-o", args.out, "-m", args.manifest, "--k", str(args.k),
+                            "--seed", str(args.seed), "--pool", str(args.pool),
+                            "--langs", args.langs, "--tiers", args.tiers])
     return 2
 
 

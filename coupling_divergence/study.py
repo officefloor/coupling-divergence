@@ -131,11 +131,41 @@ def _fisher_from(block: dict):
                           block["n_univ"] - block["n_out"] - block["n_god"] + a)
 
 
+_APP_FILES = ("Dockerfile", "docker-compose.yml", "docker-compose.yaml", "Procfile")
+
+
+def classify_kind(root: str, funcs: dict) -> str:
+    """Post-hoc heuristic: application vs library. Not controlled by the sampler and not a
+    precise taxonomy; it is reported so the realized type mix of the sample is visible.
+    Signals of a deployable application: a container/deploy descriptor, a Rust binary crate
+    (main.rs without lib.rs), a Python `__main__.py`, or an entry function named `main`
+    (Go/Java/C/Rust). Everything else is called a library."""
+    try:
+        top = set(os.listdir(root))
+    except OSError:
+        top = set()
+    if top & set(_APP_FILES):
+        return "application"
+    hits = set()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in (".git", "node_modules", "vendor",
+                                                        "target", "build", "dist", ".venv")]
+        for f in filenames:
+            if f in _APP_FILES or f == "__main__.py" or f in ("main.rs", "lib.rs"):
+                hits.add(f)
+    if hits & set(_APP_FILES) or "__main__.py" in hits or ("main.rs" in hits and "lib.rs" not in hits):
+        return "application"
+    if any(fid[1] == "main" for fid in funcs):           # Go/Java/C/Rust entry point
+        return "application"
+    return "library"
+
+
 def analyse(root: str, pmd: str | None) -> dict:
     res = extract.analyze_tree(root)
     funcs, wmc = res["funcs"], res["wmc"]
     if not funcs:
         return {"error": "no functions"}
+    kind = classify_kind(root, funcs)
     # method level
     m_out = extract.outliers(funcs)
     m_god = {fid for fid, r in funcs.items() if r["cc"] >= CC_GOD}
@@ -146,7 +176,7 @@ def analyse(root: str, pmd: str | None) -> dict:
     c_god = {f for f, w in wmc.items() if w >= extract.WMC_GOD}
     c_univ = {f for f in cg if cg[f] > 0}
     out = {
-        "n_funcs": len(funcs), "n_files": len(wmc),
+        "n_funcs": len(funcs), "n_files": len(wmc), "kind": kind,
         "method_vs_cc14": _enrich(m_out, m_god, m_univ),
         "class_vs_wmc47": _enrich(c_out, c_god, c_univ),
         "wmc_gods": len(c_god), "gen_class_outliers": len(c_out),
@@ -225,7 +255,7 @@ def run(repos: list[str], out_path: str, pmd: str | None, keep: bool) -> None:
 # ---------------------------------------------------------------------------
 
 CSV_COLUMNS = [
-    "name", "repo", "lang", "commit", "date", "n_files", "n_funcs",
+    "name", "repo", "lang", "kind", "commit", "date", "n_files", "n_funcs",
     "wmc_gods", "gen_class_outliers", "class_lift", "class_recall", "class_fisher_p",
     "cc_gods", "gen_method_outliers", "method_lift", "method_recall", "method_fisher_p",
     "pmd_gods", "class_lift_vs_pmd", "wmc_only_leaves", "wmc_only_leaves_flagged_by_gen",
@@ -237,7 +267,7 @@ def _row_to_csv(r: dict) -> dict:
     pv = r.get("class_vs_pmd") or {}
     return {
         "name": r.get("name"), "repo": r.get("repo"), "lang": r.get("lang"),
-        "commit": r.get("commit"), "date": r.get("date"),
+        "kind": r.get("kind"), "commit": r.get("commit"), "date": r.get("date"),
         "n_files": r.get("n_files"), "n_funcs": r.get("n_funcs"),
         "wmc_gods": r.get("wmc_gods"), "gen_class_outliers": r.get("gen_class_outliers"),
         "class_lift": cv.get("lift"), "class_recall": cv.get("recall"),
@@ -310,9 +340,13 @@ def _summary(rows: list[dict]) -> None:
                   f"95% CI {p['ci95_lift']} (excludes 1: {p['excludes_1']}) | "
                   f"individually significant {p['sig_repos']}/{p['n_repos']} | "
                   f"repos for CI half-width 0.2 on log-lift: ~{p['n_for_ci_halfwidth_0.2']}")
-    print("\nNote: each repo is one observation; 'individually significant' is Fisher exact "
+    kinds = Counter(r.get("kind") for r in ok)
+    print(f"\nREALIZED TYPE MIX (post-hoc heuristic): "
+          f"{dict(kinds)} over {len(ok)} repos")
+    print("Note: each repo is one observation; 'individually significant' is Fisher exact "
           "p<0.05 on that repo's outlier x god table. The sample-size estimate uses the "
-          "observed between-repo variance of log-lift.")
+          "observed between-repo variance of log-lift. Type (application/library) is a "
+          "post-hoc heuristic, not controlled by sampling.")
 
 
 def write_anc(rows: list[dict], anc_dir: str) -> None:
@@ -357,6 +391,9 @@ REFERENCES (the textbook "ground truth" each outlier is scored against)
 
 COLUMNS
   name, repo, lang, commit, date   repository identity and the exact revision measured
+  kind                             application or library, a post-hoc heuristic (container or
+                                   deploy descriptor, a binary-crate / __main__ / main entry);
+                                   reported so the sample's type mix is visible, not controlled
   n_files, n_funcs                 source files and functions parsed (tests excluded)
   wmc_gods                         files with WMC >= 47
   gen_class_outliers               files whose cumulated divergence is a modified-z outlier

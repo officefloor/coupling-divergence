@@ -1,0 +1,986 @@
+{
+  "generated_by": "coupling-divergence sample",
+  "sampled_at_utc": "2026-10-16",
+  "seed": 1,
+  "k_per_stratum": 3,
+  "pool_per_stratum": 100,
+  "langs": [
+    "java",
+    "python",
+    "javascript",
+    "typescript",
+    "go",
+    "c",
+    "c++",
+    "c#",
+    "ruby",
+    "php",
+    "rust"
+  ],
+  "tiers": {
+    "high": "stars:>5000",
+    "mid": "stars:1000..5000",
+    "low": "stars:200..1000"
+  },
+  "note": "Frozen frame. Re-running reproduces the METHOD; GitHub is a moving target, so the exact list is pinned here, not guaranteed identical on re-run. Tier is a popularity proxy for quality; app-vs-library is reported post-hoc by the study.",
+  "n_selected": 99,
+  "strata": [
+    {
+      "lang": "java",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:Java stars:>5000 archived:false fork:false",
+      "total_matched": 595,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "lenve/vhr",
+          "url": "https://github.com/lenve/vhr.git",
+          "stars": 28031,
+          "rank": 54
+        },
+        {
+          "full_name": "alibaba/nacos",
+          "url": "https://github.com/alibaba/nacos.git",
+          "stars": 33458,
+          "rank": 38
+        },
+        {
+          "full_name": "JakeWharton/butterknife",
+          "url": "https://github.com/JakeWharton/butterknife.git",
+          "stars": 25324,
+          "rank": 66
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "java",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:Java stars:1000..5000 archived:false fork:false",
+      "total_matched": 2865,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "spring-cloud/spring-cloud-gateway",
+          "url": "https://github.com/spring-cloud/spring-cloud-gateway.git",
+          "stars": 4912,
+          "rank": 20
+        },
+        {
+          "full_name": "fuzhengwei/small-spring",
+          "url": "https://github.com/fuzhengwei/small-spring.git",
+          "stars": 4901,
+          "rank": 24
+        },
+        {
+          "full_name": "Querz/mcaselector",
+          "url": "https://github.com/Querz/mcaselector.git",
+          "stars": 4917,
+          "rank": 19
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "java",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:Java stars:200..1000 archived:false fork:false",
+      "total_matched": 10473,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "robert-bor/aho-corasick",
+          "url": "https://github.com/robert-bor/aho-corasick.git",
+          "stars": 994,
+          "rank": 18
+        },
+        {
+          "full_name": "vaadin/hilla",
+          "url": "https://github.com/vaadin/hilla.git",
+          "stars": 983,
+          "rank": 49
+        },
+        {
+          "full_name": "Chion82/WeChatMomentStat-Android",
+          "url": "https://github.com/Chion82/WeChatMomentStat-Android.git",
+          "stars": 991,
+          "rank": 26
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "python",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:Python stars:>5000 archived:false fork:false",
+      "total_matched": 2154,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "microsoft/markitdown",
+          "url": "https://github.com/microsoft/markitdown.git",
+          "stars": 190503,
+          "rank": 9
+        },
+        {
+          "full_name": "harry0703/MoneyPrinterTurbo",
+          "url": "https://github.com/harry0703/MoneyPrinterTurbo.git",
+          "stars": 131924,
+          "rank": 24
+        },
+        {
+          "full_name": "microsoft/autogen",
+          "url": "https://github.com/microsoft/autogen.git",
+          "stars": 61441,
+          "rank": 93
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "python",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:Python stars:1000..5000 archived:false fork:false",
+      "total_matched": 8874,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "hynek/structlog",
+          "url": "https://github.com/hynek/structlog.git",
+          "stars": 4975,
+          "rank": 16
+        },
+        {
+          "full_name": "pyinvoke/invoke",
+          "url": "https://github.com/pyinvoke/invoke.git",
+          "stars": 4780,
+          "rank": 99
+        },
+        {
+          "full_name": "llm-attacks/llm-attacks",
+          "url": "https://github.com/llm-attacks/llm-attacks.git",
+          "stars": 4831,
+          "rank": 76
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "python",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:Python stars:200..1000 archived:false fork:false",
+      "total_matched": 38830,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "jazzband/geojson",
+          "url": "https://github.com/jazzband/geojson.git",
+          "stars": 998,
+          "rank": 22
+        },
+        {
+          "full_name": "google-research/augmix",
+          "url": "https://github.com/google-research/augmix.git",
+          "stars": 991,
+          "rank": 78
+        },
+        {
+          "full_name": "HKUDS/PhoneCLI",
+          "url": "https://github.com/HKUDS/PhoneCLI.git",
+          "stars": 990,
+          "rank": 92
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "javascript",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:JavaScript stars:>5000 archived:false fork:false",
+      "total_matched": 1369,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "NaiboWang/EasySpider",
+          "url": "https://github.com/NaiboWang/EasySpider.git",
+          "stars": 44688,
+          "rank": 66
+        },
+        {
+          "full_name": "ryanmcdermott/clean-code-javascript",
+          "url": "https://github.com/ryanmcdermott/clean-code-javascript.git",
+          "stars": 94731,
+          "rank": 17
+        },
+        {
+          "full_name": "mui/material-ui",
+          "url": "https://github.com/mui/material-ui.git",
+          "stars": 99226,
+          "rank": 14
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "javascript",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:JavaScript stars:1000..5000 archived:false fork:false",
+      "total_matched": 5413,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "oframe/ogl",
+          "url": "https://github.com/oframe/ogl.git",
+          "stars": 4673,
+          "rank": 100
+        },
+        {
+          "full_name": "mpetroff/pannellum",
+          "url": "https://github.com/mpetroff/pannellum.git",
+          "stars": 4910,
+          "rank": 36
+        },
+        {
+          "full_name": "exif-js/exif-js",
+          "url": "https://github.com/exif-js/exif-js.git",
+          "stars": 4980,
+          "rank": 13
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "javascript",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:JavaScript stars:200..1000 archived:false fork:false",
+      "total_matched": 21415,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "PactInteractive/image-downloader",
+          "url": "https://github.com/PactInteractive/image-downloader.git",
+          "stars": 989,
+          "rank": 70
+        },
+        {
+          "full_name": "christina-de-martinez/babel-plugin-glowup-vibes",
+          "url": "https://github.com/christina-de-martinez/babel-plugin-glowup-vibes.git",
+          "stars": 990,
+          "rank": 65
+        },
+        {
+          "full_name": "hukaibaihu/vue-org-tree",
+          "url": "https://github.com/hukaibaihu/vue-org-tree.git",
+          "stars": 995,
+          "rank": 36
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "typescript",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:TypeScript stars:>5000 archived:false fork:false",
+      "total_matched": 1623,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "vuejs/core",
+          "url": "https://github.com/vuejs/core.git",
+          "stars": 54648,
+          "rank": 72
+        },
+        {
+          "full_name": "nexu-io/open-design",
+          "url": "https://github.com/nexu-io/open-design.git",
+          "stars": 101438,
+          "rank": 22
+        },
+        {
+          "full_name": "angular/angular",
+          "url": "https://github.com/angular/angular.git",
+          "stars": 101062,
+          "rank": 24
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "typescript",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:TypeScript stars:1000..5000 archived:false fork:false",
+      "total_matched": 4486,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "aipoch/open-science",
+          "url": "https://github.com/aipoch/open-science.git",
+          "stars": 4929,
+          "rank": 25
+        },
+        {
+          "full_name": "latitude-dev/latitude-llm",
+          "url": "https://github.com/latitude-dev/latitude-llm.git",
+          "stars": 4722,
+          "rank": 81
+        },
+        {
+          "full_name": "liveblocks/liveblocks",
+          "url": "https://github.com/liveblocks/liveblocks.git",
+          "stars": 4755,
+          "rank": 70
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "typescript",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:TypeScript stars:200..1000 archived:false fork:false",
+      "total_matched": 14819,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "fabiospampinato/vscode-todo-plus",
+          "url": "https://github.com/fabiospampinato/vscode-todo-plus.git",
+          "stars": 998,
+          "rank": 6
+        },
+        {
+          "full_name": "PicGo/PicGo-Core",
+          "url": "https://github.com/PicGo/PicGo-Core.git",
+          "stars": 991,
+          "rank": 39
+        },
+        {
+          "full_name": "joBr99/nspanel-lovelace-ui",
+          "url": "https://github.com/joBr99/nspanel-lovelace-ui.git",
+          "stars": 997,
+          "rank": 12
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "go",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:Go stars:>5000 archived:false fork:false",
+      "total_matched": 918,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "infiniflow/ragflow",
+          "url": "https://github.com/infiniflow/ragflow.git",
+          "stars": 92317,
+          "rank": 8
+        },
+        {
+          "full_name": "iawia002/lux",
+          "url": "https://github.com/iawia002/lux.git",
+          "stars": 31776,
+          "rank": 87
+        },
+        {
+          "full_name": "XIU2/CloudflareSpeedTest",
+          "url": "https://github.com/XIU2/CloudflareSpeedTest.git",
+          "stars": 29459,
+          "rank": 100
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "go",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:Go stars:1000..5000 archived:false fork:false",
+      "total_matched": 2745,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "NVIDIA/nvidia-container-toolkit",
+          "url": "https://github.com/NVIDIA/nvidia-container-toolkit.git",
+          "stars": 4594,
+          "rank": 90
+        },
+        {
+          "full_name": "werf/werf",
+          "url": "https://github.com/werf/werf.git",
+          "stars": 4737,
+          "rank": 61
+        },
+        {
+          "full_name": "projectdiscovery/interactsh",
+          "url": "https://github.com/projectdiscovery/interactsh.git",
+          "stars": 4591,
+          "rank": 91
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "go",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:Go stars:200..1000 archived:false fork:false",
+      "total_matched": 8474,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "Tnze/go-mc",
+          "url": "https://github.com/Tnze/go-mc.git",
+          "stars": 982,
+          "rank": 61
+        },
+        {
+          "full_name": "buger/goterm",
+          "url": "https://github.com/buger/goterm.git",
+          "stars": 983,
+          "rank": 59
+        },
+        {
+          "full_name": "v2fly/geoip",
+          "url": "https://github.com/v2fly/geoip.git",
+          "stars": 970,
+          "rank": 99
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "c",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:C stars:>5000 archived:false fork:false",
+      "total_matched": 418,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "DeusData/codebase-memory-mcp",
+          "url": "https://github.com/DeusData/codebase-memory-mcp.git",
+          "stars": 46692,
+          "rank": 11
+        },
+        {
+          "full_name": "videolan/vlc",
+          "url": "https://github.com/videolan/vlc.git",
+          "stars": 20073,
+          "rank": 63
+        },
+        {
+          "full_name": "facebook/zstd",
+          "url": "https://github.com/facebook/zstd.git",
+          "stars": 28035,
+          "rank": 32
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "c",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:C stars:1000..5000 archived:false fork:false",
+      "total_matched": 1957,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "rfjakob/earlyoom",
+          "url": "https://github.com/rfjakob/earlyoom.git",
+          "stars": 4344,
+          "rank": 84
+        },
+        {
+          "full_name": "KernelSU-Next/KernelSU-Next",
+          "url": "https://github.com/KernelSU-Next/KernelSU-Next.git",
+          "stars": 4479,
+          "rank": 58
+        },
+        {
+          "full_name": "blinker-iot/blinker-esp-idf",
+          "url": "https://github.com/blinker-iot/blinker-esp-idf.git",
+          "stars": 4292,
+          "rank": 92
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "c",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:C stars:200..1000 archived:false fork:false",
+      "total_matched": 7634,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "theori-io/nrsc5",
+          "url": "https://github.com/theori-io/nrsc5.git",
+          "stars": 970,
+          "rank": 77
+        },
+        {
+          "full_name": "Forairaaaaa/Monica",
+          "url": "https://github.com/Forairaaaaa/Monica.git",
+          "stars": 979,
+          "rank": 58
+        },
+        {
+          "full_name": "avislab/STM32F103",
+          "url": "https://github.com/avislab/STM32F103.git",
+          "stars": 976,
+          "rank": 64
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "c++",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:C++ stars:>5000 archived:false fork:false",
+      "total_matched": 585,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "ggml-org/whisper.cpp",
+          "url": "https://github.com/ggml-org/whisper.cpp.git",
+          "stars": 54432,
+          "rank": 15
+        },
+        {
+          "full_name": "Tencent/ncnn",
+          "url": "https://github.com/Tencent/ncnn.git",
+          "stars": 23963,
+          "rank": 80
+        },
+        {
+          "full_name": "ml-explore/mlx",
+          "url": "https://github.com/ml-explore/mlx.git",
+          "stars": 28807,
+          "rank": 61
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "c++",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:C++ stars:1000..5000 archived:false fork:false",
+      "total_matched": 2565,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "microsoft/WindowsAppSDK",
+          "url": "https://github.com/microsoft/WindowsAppSDK.git",
+          "stars": 4703,
+          "rank": 43
+        },
+        {
+          "full_name": "Tencent/TNN",
+          "url": "https://github.com/Tencent/TNN.git",
+          "stars": 4659,
+          "rank": 52
+        },
+        {
+          "full_name": "anyrtcIO-Community/anyRTC-RTMP-OpenSource",
+          "url": "https://github.com/anyrtcIO-Community/anyRTC-RTMP-OpenSource.git",
+          "stars": 4913,
+          "rank": 8
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "c++",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:C++ stars:200..1000 archived:false fork:false",
+      "total_matched": 10412,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "microsoft/vswhere",
+          "url": "https://github.com/microsoft/vswhere.git",
+          "stars": 995,
+          "rank": 13
+        },
+        {
+          "full_name": "gnina/gnina",
+          "url": "https://github.com/gnina/gnina.git",
+          "stars": 992,
+          "rank": 26
+        },
+        {
+          "full_name": "electronicarts/dem-bones",
+          "url": "https://github.com/electronicarts/dem-bones.git",
+          "stars": 994,
+          "rank": 16
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "c#",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:C# stars:>5000 archived:false fork:false",
+      "total_matched": 278,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "JustArchiNET/ArchiSteamFarm",
+          "url": "https://github.com/JustArchiNET/ArchiSteamFarm.git",
+          "stars": 13757,
+          "rank": 64
+        },
+        {
+          "full_name": "Flow-Launcher/Flow.Launcher",
+          "url": "https://github.com/Flow-Launcher/Flow.Launcher.git",
+          "stars": 15805,
+          "rank": 46
+        },
+        {
+          "full_name": "MudBlazor/MudBlazor",
+          "url": "https://github.com/MudBlazor/MudBlazor.git",
+          "stars": 10637,
+          "rank": 93
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "c#",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:C# stars:1000..5000 archived:false fork:false",
+      "total_matched": 1407,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "ExcelDataReader/ExcelDataReader",
+          "url": "https://github.com/ExcelDataReader/ExcelDataReader.git",
+          "stars": 4422,
+          "rank": 57
+        },
+        {
+          "full_name": "marian42/wavefunctioncollapse",
+          "url": "https://github.com/marian42/wavefunctioncollapse.git",
+          "stars": 4861,
+          "rank": 15
+        },
+        {
+          "full_name": "dremin/RetroBar",
+          "url": "https://github.com/dremin/RetroBar.git",
+          "stars": 4422,
+          "rank": 58
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "c#",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:C# stars:200..1000 archived:false fork:false",
+      "total_matched": 6139,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "Unity-Technologies/UnityPlayground",
+          "url": "https://github.com/Unity-Technologies/UnityPlayground.git",
+          "stars": 973,
+          "rank": 49
+        },
+        {
+          "full_name": "Pathoschild/StardewMods",
+          "url": "https://github.com/Pathoschild/StardewMods.git",
+          "stars": 954,
+          "rank": 83
+        },
+        {
+          "full_name": "kevin-montrose/Sigil",
+          "url": "https://github.com/kevin-montrose/Sigil.git",
+          "stars": 989,
+          "rank": 22
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "ruby",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:Ruby stars:>5000 archived:false fork:false",
+      "total_matched": 134,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "heartcombo/devise",
+          "url": "https://github.com/heartcombo/devise.git",
+          "stars": 24355,
+          "rank": 16
+        },
+        {
+          "full_name": "discourse/discourse",
+          "url": "https://github.com/discourse/discourse.git",
+          "stars": 47983,
+          "rank": 6
+        },
+        {
+          "full_name": "matteocrippa/awesome-swift",
+          "url": "https://github.com/matteocrippa/awesome-swift.git",
+          "stars": 26320,
+          "rank": 14
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "ruby",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:Ruby stars:1000..5000 archived:false fork:false",
+      "total_matched": 760,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "jruby/jruby",
+          "url": "https://github.com/jruby/jruby.git",
+          "stars": 3923,
+          "rank": 51
+        },
+        {
+          "full_name": "xcpretty/xcpretty",
+          "url": "https://github.com/xcpretty/xcpretty.git",
+          "stars": 4033,
+          "rank": 44
+        },
+        {
+          "full_name": "activemerchant/active_merchant",
+          "url": "https://github.com/activemerchant/active_merchant.git",
+          "stars": 4602,
+          "rank": 16
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "ruby",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:Ruby stars:200..1000 archived:false fork:false",
+      "total_matched": 2937,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "dmayer/idb",
+          "url": "https://github.com/dmayer/idb.git",
+          "stars": 953,
+          "rank": 56
+        },
+        {
+          "full_name": "rsl/stringex",
+          "url": "https://github.com/rsl/stringex.git",
+          "stars": 986,
+          "rank": 14
+        },
+        {
+          "full_name": "jhund/filterrific",
+          "url": "https://github.com/jhund/filterrific.git",
+          "stars": 909,
+          "rank": 95
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "php",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:PHP stars:>5000 archived:false fork:false",
+      "total_matched": 250,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "Qloapps/QloApps",
+          "url": "https://github.com/Qloapps/QloApps.git",
+          "stars": 14432,
+          "rank": 35
+        },
+        {
+          "full_name": "symfony/console",
+          "url": "https://github.com/symfony/console.git",
+          "stars": 9813,
+          "rank": 91
+        },
+        {
+          "full_name": "walkor/workerman",
+          "url": "https://github.com/walkor/workerman.git",
+          "stars": 11545,
+          "rank": 61
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "php",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:PHP stars:1000..5000 archived:false fork:false",
+      "total_matched": 1164,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "php-debugbar/php-debugbar",
+          "url": "https://github.com/php-debugbar/php-debugbar.git",
+          "stars": 4383,
+          "rank": 47
+        },
+        {
+          "full_name": "LycheeOrg/Lychee",
+          "url": "https://github.com/LycheeOrg/Lychee.git",
+          "stars": 4311,
+          "rank": 52
+        },
+        {
+          "full_name": "corcel/corcel",
+          "url": "https://github.com/corcel/corcel.git",
+          "stars": 4770,
+          "rank": 18
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "php",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:PHP stars:200..1000 archived:false fork:false",
+      "total_matched": 4533,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "scribu/wp-posts-to-posts",
+          "url": "https://github.com/scribu/wp-posts-to-posts.git",
+          "stars": 972,
+          "rank": 33
+        },
+        {
+          "full_name": "BRACKETS-by-TRIAD/craftable",
+          "url": "https://github.com/BRACKETS-by-TRIAD/craftable.git",
+          "stars": 987,
+          "rank": 15
+        },
+        {
+          "full_name": "csdeshang/DSPlatform-open",
+          "url": "https://github.com/csdeshang/DSPlatform-open.git",
+          "stars": 994,
+          "rank": 10
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "rust",
+      "tier": "high",
+      "stars_qualifier": "stars:>5000",
+      "query": "language:Rust stars:>5000 archived:false fork:false",
+      "total_matched": 526,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "tree-sitter/tree-sitter",
+          "url": "https://github.com/tree-sitter/tree-sitter.git",
+          "stars": 27202,
+          "rank": 99
+        },
+        {
+          "full_name": "zed-industries/zed",
+          "url": "https://github.com/zed-industries/zed.git",
+          "stars": 91807,
+          "rank": 11
+        },
+        {
+          "full_name": "nautechsystems/nautilus_trader",
+          "url": "https://github.com/nautechsystems/nautilus_trader.git",
+          "stars": 30139,
+          "rank": 86
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "rust",
+      "tier": "mid",
+      "stars_qualifier": "stars:1000..5000",
+      "query": "language:Rust stars:1000..5000 archived:false fork:false",
+      "total_matched": 1772,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "szabodanika/microbin",
+          "url": "https://github.com/szabodanika/microbin.git",
+          "stars": 4606,
+          "rank": 39
+        },
+        {
+          "full_name": "cberner/redb",
+          "url": "https://github.com/cberner/redb.git",
+          "stars": 4851,
+          "rank": 14
+        },
+        {
+          "full_name": "aya-rs/aya",
+          "url": "https://github.com/aya-rs/aya.git",
+          "stars": 4857,
+          "rank": 12
+        }
+      ],
+      "error": null
+    },
+    {
+      "lang": "rust",
+      "tier": "low",
+      "stars_qualifier": "stars:200..1000",
+      "query": "language:Rust stars:200..1000 archived:false fork:false",
+      "total_matched": 5724,
+      "fetched": 100,
+      "selected": [
+        {
+          "full_name": "tokio-rs/slab",
+          "url": "https://github.com/tokio-rs/slab.git",
+          "stars": 948,
+          "rank": 97
+        },
+        {
+          "full_name": "paperclip-rs/paperclip",
+          "url": "https://github.com/paperclip-rs/paperclip.git",
+          "stars": 970,
+          "rank": 51
+        },
+        {
+          "full_name": "omerbenamram/evtx",
+          "url": "https://github.com/omerbenamram/evtx.git",
+          "stars": 967,
+          "rank": 63
+        }
+      ],
+      "error": null
+    }
+  ]
+}

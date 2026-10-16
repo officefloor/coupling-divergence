@@ -127,9 +127,33 @@ coupling-divergence study --repos repos.txt --anc anc/coupling-divergence-study 
 ```
 
 It prints per repo as it goes (`[i/N] name: cloning ...` then the measured line), is
-**resumable** (re-running skips repos already in the output), and scales to 100+ repos by
-adding URLs to `repos.txt`. Each row records `commit` and `date`, so a run is pinned to
-exact revisions. `repos.txt` ships ~50 repositories across 11 languages as a pilot.
+**resumable** (re-running skips repos already in the output), and scales by adding URLs to
+`repos.txt`. Each row records `commit` and `date`, so a run is pinned to exact revisions.
+
+### How the study population was chosen (the honest part)
+
+The author's ecosystem is one of the things this metric is applied to, so the only sound
+defence against self-serving selection is to put the sampling in code and let anyone rerun
+it. `coupling-divergence sample` draws the population from the GitHub search API, stratified
+by **language** and by **popularity tier** (a proxy for the spread from mature to rough
+code), taking a seeded random subset within each stratum:
+
+```
+coupling-divergence sample --k 3 --seed 1 -o repos.txt -m sampling-manifest.json
+```
+
+The committed `repos.txt` (99 repos: 11 languages x 3 tiers x 3) was produced exactly this
+way. `sampling-manifest.json` is the auditable frame: it records the seed, the date, every
+search query, how many repositories matched each stratum (so the selection probability is
+visible), and which were chosen with their star counts. `repos-exemplar.txt` keeps the
+earlier hand-picked well-known set for sanity.
+
+One caveat stated plainly: GitHub is a moving target, so rerunning the sampler reproduces
+the **method**, not necessarily the identical list. The committed manifest and the per-repo
+commits in the results pin the exact population used. Popularity tier is a proxy for
+quality, not a measurement of it, and application-vs-library type is not controlled by the
+sampler; the study classifies each repo post-hoc (a heuristic) and reports the realized
+mix, so the sample's composition is visible rather than assumed.
 
 What it measures per repo: the class-cumulated generation outlier against the god-class size
 reference `WMC >= 47`, the method generation outlier against the brain-method reference
