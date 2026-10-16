@@ -147,6 +147,13 @@ def grow(langs: list[str], tiers: list[str], target: int, cap: int, hw: float, s
         s = int(time.time() - t0)
         return f"{s // 60:3d}:{s % 60:02d}"
 
+    # Create the parent directories of every output path up front, so a nested -O/-m/-o
+    # target (e.g. paper/data/2026-10-17/study.json) does not crash on the first checkpoint.
+    for p in (out_path, manifest_path, repos_path):
+        d = os.path.dirname(p)
+        if d:
+            os.makedirs(d, exist_ok=True)
+
     results: dict = {}
     if os.path.exists(out_path):                     # resume
         try:
