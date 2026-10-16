@@ -1,0 +1,35 @@
+# Repositories for `godwatch study --repos repos.txt`.
+# One git URL per line; the default branch's latest commit is used and recorded.
+# Add your own; the study is bounded by disk only (each clone is shallow and deleted).
+# --- java ---
+https://github.com/apache/commons-lang.git
+https://github.com/google/gson.git
+https://github.com/jhy/jsoup.git
+https://github.com/mockito/mockito.git
+https://github.com/square/retrofit.git
+# --- python ---
+https://github.com/pallets/flask.git
+https://github.com/psf/requests.git
+https://github.com/Textualize/rich.git
+https://github.com/encode/httpx.git
+https://github.com/psf/black.git
+# --- javascript / typescript ---
+https://github.com/expressjs/express.git
+https://github.com/lodash/lodash.git
+https://github.com/axios/axios.git
+https://github.com/colinhacks/zod.git
+https://github.com/date-fns/date-fns.git
+# --- go ---
+https://github.com/gin-gonic/gin.git
+https://github.com/spf13/cobra.git
+https://github.com/sirupsen/logrus.git
+# --- c / c++ ---
+https://github.com/nlohmann/json.git
+https://github.com/fmtlib/fmt.git
+# --- c# ---
+https://github.com/JamesNK/Newtonsoft.Json.git
+https://github.com/App-vNext/Polly.git
+# --- ruby / php / rust ---
+https://github.com/sinatra/sinatra.git
+https://github.com/guzzle/guzzle.git
+https://github.com/clap-rs/clap.git
