@@ -122,19 +122,29 @@ public repositories at those commits.
 git clone <this repo> && cd GodWatch
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
-godwatch study --repos repos.txt                      # progress to console; writes godwatch_study.json
-godwatch study --repos repos.txt --pmd /path/to/pmd   # also use PMD GodClass on Java repos
+godwatch study --repos repos.txt --anc anc/godwatch-study    # progress to console
+godwatch study --repos repos.txt --anc anc/godwatch-study --pmd /path/to/pmd   # + Java GodClass
 ```
 
 It prints per repo as it goes (`[i/N] name: cloning ...` then the measured line), is
 **resumable** (re-running skips repos already in the output), and scales to 100+ repos by
-just adding URLs to `repos.txt`. Each row in the JSON records `commit` and `date` so a run
-is pinned to exact revisions.
+adding URLs to `repos.txt`. Each row records `commit` and `date`, so a run is pinned to
+exact revisions. `repos.txt` ships ~50 repositories across 11 languages as a pilot.
 
 What it measures per repo: the class-cumulated generation outlier against the god-class size
 reference `WMC >= 47`, the method generation outlier against the brain-method reference
-`CC >= 14`, and (Java, with `--pmd`) against PMD's full `GodClass`. It reports enrichment
-(lift) and recall, pooled per language.
+`CC >= 14`, and (Java, with `--pmd`) PMD's full `GodClass`. For each it reports the
+enrichment (lift), recall, and a one-sided **Fisher exact p-value** for that repo.
+
+At the end it prints the pooled result: per language, and across all repos the mean lift
+with a 95% confidence interval, how many repos are individually significant, and the number
+of repos needed to reach a target CI half-width. That last number is a **stopping rule**:
+because the run is resumable, grow `repos.txt` and re-run until the repos-needed estimate is
+at or below the repos measured, then the sample is large enough.
+
+`--anc DIR` writes the paper's ancillary-data package there: `results.csv` (one row per
+repo, with the exact commit) and a self-contained `README.txt` explaining every column and
+the method, so the table stands alone without the paper or this repository.
 
 ### Result on the default 25-repo list (11 languages)
 

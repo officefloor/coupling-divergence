@@ -18,7 +18,9 @@ Resumable: results already in the output JSON are skipped. Runnable to 100+ repo
 from __future__ import annotations
 
 import argparse
+import csv as _csv
 import json
+import math as _math
 import os
 import shutil
 import subprocess
@@ -100,7 +102,33 @@ def _enrich(outset: set, godset: set, universe: set) -> dict:
     cond = len(outset & godset) / len(outset) if outset else None
     lift = round(cond / base, 2) if (base and cond is not None) else None
     recall = round(len(outset & godset) / len(godset), 2) if godset else None
-    return {"lift": lift, "recall": recall, "n_god": len(godset), "n_out": len(outset)}
+    return {"lift": lift, "recall": recall, "n_god": len(godset), "n_out": len(outset),
+            "n_overlap": len(outset & godset), "n_univ": len(universe)}
+
+
+def fisher_greater(a: int, b: int, c: int, d: int):
+    """One-sided Fisher exact p-value for enrichment (P that the outliers would overlap the
+    gods at least this much by chance), pure-python via log-gamma. a=outlier&god,
+    b=outlier&not-god, c=not-outlier&god, d=not-outlier&not-god."""
+    from math import lgamma, exp
+    n, r1, c1 = a + b + c + d, a + b, a + c
+    if n == 0 or r1 == 0 or c1 == 0:
+        return None
+
+    def lC(N, k):
+        return lgamma(N + 1) - lgamma(k + 1) - lgamma(N - k + 1)
+    base = lC(n, r1)
+    p = sum(exp(lC(c1, x) + lC(n - c1, r1 - x) - base) for x in range(a, min(r1, c1) + 1))
+    return round(min(p, 1.0), 5)
+
+
+def _fisher_from(block: dict):
+    """Fisher p from an `_enrich` block's counts."""
+    if not block or block.get("n_univ") in (None, 0):
+        return None
+    a = block["n_overlap"]
+    return fisher_greater(a, block["n_out"] - a, block["n_god"] - a,
+                          block["n_univ"] - block["n_out"] - block["n_god"] + a)
 
 
 def analyse(root: str, pmd: str | None) -> dict:
@@ -187,22 +215,196 @@ def run(repos: list[str], out_path: str, pmd: str | None, keep: bool) -> None:
               flush=True)
         if not keep:
             shutil.rmtree(dest, ignore_errors=True)
-    _summary(list(results.values()))
+    rows = list(results.values())
+    write_csv(rows, os.path.splitext(out_path)[0] + ".csv")
+    _summary(rows)
+
+
+# ---------------------------------------------------------------------------
+# statistics, table, and ancillary-data package
+# ---------------------------------------------------------------------------
+
+CSV_COLUMNS = [
+    "name", "repo", "lang", "commit", "date", "n_files", "n_funcs",
+    "wmc_gods", "gen_class_outliers", "class_lift", "class_recall", "class_fisher_p",
+    "cc_gods", "gen_method_outliers", "method_lift", "method_recall", "method_fisher_p",
+    "pmd_gods", "class_lift_vs_pmd", "wmc_only_leaves", "wmc_only_leaves_flagged_by_gen",
+]
+
+
+def _row_to_csv(r: dict) -> dict:
+    cv, mv = r.get("class_vs_wmc47") or {}, r.get("method_vs_cc14") or {}
+    pv = r.get("class_vs_pmd") or {}
+    return {
+        "name": r.get("name"), "repo": r.get("repo"), "lang": r.get("lang"),
+        "commit": r.get("commit"), "date": r.get("date"),
+        "n_files": r.get("n_files"), "n_funcs": r.get("n_funcs"),
+        "wmc_gods": r.get("wmc_gods"), "gen_class_outliers": r.get("gen_class_outliers"),
+        "class_lift": cv.get("lift"), "class_recall": cv.get("recall"),
+        "class_fisher_p": _fisher_from(cv),
+        "cc_gods": mv.get("n_god"), "gen_method_outliers": mv.get("n_out"),
+        "method_lift": mv.get("lift"), "method_recall": mv.get("recall"),
+        "method_fisher_p": _fisher_from(mv),
+        "pmd_gods": r.get("pmd_gods"), "class_lift_vs_pmd": pv.get("lift"),
+        "wmc_only_leaves": r.get("wmc_only_leaves"),
+        "wmc_only_leaves_flagged_by_gen": r.get("wmc_only_leaves_flagged_by_gen"),
+    }
+
+
+def write_csv(rows: list[dict], path: str) -> None:
+    with open(path, "w", newline="") as fh:
+        w = _csv.DictWriter(fh, fieldnames=CSV_COLUMNS)
+        w.writeheader()
+        for r in rows:
+            if not r.get("error"):
+                w.writerow(_row_to_csv(r))
+    print(f"\nwrote results table -> {path}")
+
+
+def _pooled_lift(rows: list[dict], key: str) -> dict:
+    """Mean of log-lift across repos (each repo one observation), with a normal 95% CI and
+    the sample size that would reach a target CI half-width. Also the share of repos whose
+    enrichment is individually significant (Fisher p < 0.05)."""
+    lifts, sig, nrep = [], 0, 0
+    for r in rows:
+        b = r.get(key)
+        if not b or not b.get("lift") or b["lift"] <= 0:
+            continue
+        nrep += 1
+        lifts.append(_math.log(b["lift"]))
+        p = _fisher_from(b)
+        if p is not None and p < 0.05:
+            sig += 1
+    if len(lifts) < 2:
+        return {"n_repos": nrep, "sig_repos": sig}
+    m = sum(lifts) / len(lifts)
+    sd = (sum((x - m) ** 2 for x in lifts) / (len(lifts) - 1)) ** 0.5
+    se = sd / len(lifts) ** 0.5
+    lo, hi = m - 1.96 * se, m + 1.96 * se
+    # repos needed so the 95% CI half-width on log-lift is <= 0.2 (a ~1.22x factor)
+    need = int(_math.ceil((1.96 * sd / 0.2) ** 2)) if sd > 0 else len(lifts)
+    return {"n_repos": nrep, "sig_repos": sig,
+            "mean_lift": round(_math.exp(m), 2),
+            "ci95_lift": [round(_math.exp(lo), 2), round(_math.exp(hi), 2)],
+            "excludes_1": lo > 0, "sd_log": round(sd, 3),
+            "n_for_ci_halfwidth_0.2": need}
 
 
 def _summary(rows: list[dict]) -> None:
-    print("\n" + "=" * 70 + "\nPOOLED PER LANGUAGE (class generation outlier vs WMC>=47)")
+    ok = [r for r in rows if not r.get("error") and r.get("class_vs_wmc47")]
+    print("\n" + "=" * 72 + "\nPOOLED PER LANGUAGE (class generation outlier vs WMC>=47)")
     by_lang = defaultdict(list)
-    for r in rows:
-        if r.get("class_vs_wmc47"):
-            by_lang[r.get("lang", "?")].append(r)
+    for r in ok:
+        by_lang[r.get("lang", "?")].append(r)
     for lang, rs in sorted(by_lang.items()):
         lifts = [r["class_vs_wmc47"]["lift"] for r in rs if r["class_vs_wmc47"]["lift"]]
-        recs = [r["class_vs_wmc47"]["recall"] for r in rs if r["class_vs_wmc47"]["recall"] is not None]
         ml = round(sum(lifts) / len(lifts), 2) if lifts else None
-        mr = round(sum(recs) / len(recs), 2) if recs else None
-        print(f"  {lang:8} {len(rs):>2} repos  mean class lift {ml}  mean recall {mr}  "
-              f"repos={[r['name'] for r in rs]}")
+        sig = sum(1 for r in rs if (_fisher_from(r["class_vs_wmc47"]) or 1) < 0.05)
+        print(f"  {lang:8} {len(rs):>2} repos  mean class lift {ml}  "
+              f"individually significant {sig}/{len(rs)}")
+    for key, label in (("class_vs_wmc47", "CLASS vs WMC>=47"),
+                       ("method_vs_cc14", "METHOD vs CC>=14")):
+        p = _pooled_lift(ok, key)
+        if "mean_lift" in p:
+            print(f"\nPOOLED {label} over {p['n_repos']} repos: mean lift {p['mean_lift']} "
+                  f"95% CI {p['ci95_lift']} (excludes 1: {p['excludes_1']}) | "
+                  f"individually significant {p['sig_repos']}/{p['n_repos']} | "
+                  f"repos for CI half-width 0.2 on log-lift: ~{p['n_for_ci_halfwidth_0.2']}")
+    print("\nNote: each repo is one observation; 'individually significant' is Fisher exact "
+          "p<0.05 on that repo's outlier x god table. The sample-size estimate uses the "
+          "observed between-repo variance of log-lift.")
+
+
+def write_anc(rows: list[dict], anc_dir: str) -> None:
+    """Write the paper's ancillary-data package: a self-contained results table + README."""
+    os.makedirs(anc_dir, exist_ok=True)
+    write_csv(rows, os.path.join(anc_dir, "results.csv"))
+    ok = [r for r in rows if not r.get("error") and r.get("class_vs_wmc47")]
+    pc = _pooled_lift(ok, "class_vs_wmc47")
+    langs = sorted({r.get("lang") for r in ok})
+    with open(os.path.join(anc_dir, "README.txt"), "w") as fh:
+        fh.write(_ANC_README.format(
+            n_repos=len(ok), n_langs=len(langs), langs=", ".join(langs),
+            mean_lift=pc.get("mean_lift"), ci=pc.get("ci95_lift"),
+            sig=pc.get("sig_repos"), ntot=pc.get("n_repos")))
+    print(f"wrote ancillary-data package -> {anc_dir}/ (results.csv, README.txt)")
+
+
+_ANC_README = """GodWatch Coupling Divergence: god-class/method detection study (ancillary data)
+================================================================================
+
+WHAT THIS IS
+  results.csv holds one row per open-source repository, measuring how well the Coupling
+  Divergence placement outlier detects textbook god classes and god methods at the
+  repository's latest default-branch commit. This package is self-contained: it needs
+  neither the paper nor any external repository to be understood. Each row records the
+  exact commit measured, so any result can be reproduced by checking that commit out.
+
+THE MEASURE (per function v, over calls to code defined in the same repository)
+  out(v) = arguments the function passes over those calls (information it sends on)
+  in(v)  = arguments passed into it by its callers
+  divergence delta(v) = max(out(v) - in(v), 0)   -- net coupling flow the function creates
+  A god method is a modified-z outlier (Iglewicz-Hoaglin, cutoff 3.5) in delta across the
+  functions that create (delta>0). A god class is the outlier of the per-class sum of delta.
+  Calls leaving into libraries do not count, so converters and mappers score near zero.
+
+REFERENCES (the textbook "ground truth" each outlier is scored against)
+  god class  = file WMC >= 47          (Lanza-Marinescu size threshold; WMC = sum of method
+                                         cyclomatic complexity)
+  god method = function CC >= 14       (McCabe high-risk)
+  Java only  = PMD's GodClass rule     (the full Lanza-Marinescu strategy: WMC and ATFD and
+                                         TCC together)
+
+COLUMNS
+  name, repo, lang, commit, date   repository identity and the exact revision measured
+  n_files, n_funcs                 source files and functions parsed (tests excluded)
+  wmc_gods                         files with WMC >= 47
+  gen_class_outliers               files whose cumulated divergence is a modified-z outlier
+  class_lift                       enrichment: P(WMC-god | divergence outlier) / base rate.
+                                   1.0 = no better than chance; >1 = divergence concentrates
+                                   on the god classes
+  class_recall                     share of WMC-gods that contain a divergence outlier
+  class_fisher_p                   one-sided Fisher exact p for that enrichment in this repo
+  cc_gods, gen_method_outliers, method_lift, method_recall, method_fisher_p
+                                   the same, at method level vs CC >= 14
+  pmd_gods, class_lift_vs_pmd      Java only: enrichment against the full PMD GodClass
+  wmc_only_leaves                  files WMC>=47 that PMD does NOT call a god (self-contained
+                                   complex algorithms; Java only)
+  wmc_only_leaves_flagged_by_gen   of those, how many the divergence signal flags (should be
+                                   low: divergence excludes essential algorithmic complexity)
+
+HEADLINE (this run)
+  {n_repos} repositories, {n_langs} languages ({langs}).
+  Class divergence outlier vs WMC>=47: mean lift {mean_lift}, 95% CI {ci} across repos;
+  individually significant (Fisher p<0.05) in {sig}/{ntot} repositories.
+  Interpretation: a divergence outlier is several times more likely than chance to be a
+  textbook god, consistently across languages. The measure detects gods; it is not a
+  before-the-fact predictor of a forming god (a separate, unproven claim).
+
+REPRODUCE
+  pip install godwatch   (or: pip install -e . from the GodWatch source)
+  godwatch study --repos <the repo URLs in this table> --anc <out dir>
+  Each clone is shallow, measured, and deleted; only the recorded commit is kept. Re-running
+  is resumable. For the Java PMD reference, pass --pmd <pmd binary>.
+"""
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("-o", "--out", default="godwatch_study.json")
+    ap.add_argument("--repos", default=None, help="file with one git URL per line")
+    ap.add_argument("--pmd", default=None, help="PMD binary, for the Java GodClass reference")
+    ap.add_argument("--anc", default=None, help="write the ancillary-data package here "
+                    "(results.csv + README.txt)")
+    ap.add_argument("--keep", action="store_true", help="do not delete clones")
+    args = ap.parse_args(argv)
+    repos = DEFAULT_REPOS
+    if args.repos:
+        repos = [l.strip() for l in open(args.repos) if l.strip() and not l.startswith("#")]
+    run(repos, args.out, args.pmd, args.keep)
+    if args.anc:
+        write_anc(list({r["repo"]: r for r in json.load(open(args.out))}.values()), args.anc)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

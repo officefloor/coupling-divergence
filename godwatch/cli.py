@@ -86,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("-o", "--out", default="godwatch_study.json")
     st.add_argument("--repos", default=None, help="file with one git URL per line")
     st.add_argument("--pmd", default=None, help="PMD binary, for the Java GodClass reference")
+    st.add_argument("--anc", default=None, help="write the ancillary-data package here "
+                    "(results.csv + README.txt)")
     st.add_argument("--keep", action="store_true", help="do not delete clones")
     args = ap.parse_args(argv)
 
@@ -100,6 +102,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.repos:
             repos = [x.strip() for x in open(args.repos) if x.strip() and not x.startswith("#")]
         study.run(repos, args.out, args.pmd, args.keep)
+        if args.anc:
+            import json as _json
+            rows = list({r["repo"]: r for r in _json.load(open(args.out))}.values())
+            study.write_anc(rows, args.anc)
         return 0
     return 2
 
