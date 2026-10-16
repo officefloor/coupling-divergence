@@ -1,1 +1,0 @@
-name,repo,lang,kind,stratum_lang,tier,stars,rank,commit,date,n_files,n_funcs,wmc_gods,gen_class_outliers,class_lift,class_recall,class_fisher_p,cc_gods,gen_method_outliers,method_lift,method_recall,method_fisher_p,pmd_gods,class_lift_vs_pmd,wmc_only_leaves,wmc_only_leaves_flagged_by_gen
