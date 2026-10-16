@@ -46,18 +46,31 @@ _STRIP = re.compile(
     r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`'
     r'|//[^\n]*|#[^\n]*|/\*.*?\*/', re.S)
 _TEST_DIR = re.compile(r"(?:^|/)(?:test|tests|testing|spec|__tests__)(?:/|$)")
+# Directories that are not the project's own code: dependencies, build output, and
+# vendored or generated trees (where a single tree-sitter parser.c can be ~100 MB).
+_SKIP_DIRS = {".git", "node_modules", "build", "target", "dist", ".venv", "venv",
+              "vendor", "vendored", "third_party", "thirdparty", "third-party",
+              "generated", "externals", "external", "deps", ".gradle", "out"}
+# A source file larger than this is a generated/minified/vendored blob, not a unit anyone
+# maintains by hand (real source is rarely over a few hundred KB). Skipping it keeps the
+# measure meaningful AND keeps the lexical scan from stalling on a 100 MB generated file.
+MAX_FILE_BYTES = 1_000_000
 
 
 def source_files(root: str, include_tests: bool = False) -> list[str]:
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in (".git", "node_modules", "build",
-                                                        "target", "dist", ".venv", "venv")]
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         for fn in filenames:
             if os.path.splitext(fn)[1].lower() not in SOURCE_EXTS:
                 continue
             rel = os.path.relpath(os.path.join(dirpath, fn), root)
             if not include_tests and _TEST_DIR.search("/" + rel.replace(os.sep, "/")):
+                continue
+            try:
+                if os.path.getsize(os.path.join(dirpath, fn)) > MAX_FILE_BYTES:
+                    continue
+            except OSError:
                 continue
             out.append(rel)
     return out
