@@ -112,11 +112,11 @@ def main(argv: list[str] | None = None) -> int:
         repos = study.DEFAULT_REPOS
         if args.repos:
             repos = [x.strip() for x in open(args.repos) if x.strip() and not x.startswith("#")]
-        study.run(repos, args.out, args.pmd, args.keep)
+        manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
+        study.run(repos, args.out, args.pmd, args.keep, manifest)
         if args.anc:
             import json as _json
             rows = list({r["repo"]: r for r in _json.load(open(args.out))}.values())
-            manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
             study.write_anc(rows, args.anc, frame_files=[args.repos, manifest])
         return 0
     if args.cmd == "sample":

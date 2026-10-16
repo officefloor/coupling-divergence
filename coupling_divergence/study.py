@@ -198,13 +198,32 @@ def analyse(root: str, pmd: str | None) -> dict:
     return out
 
 
-def run(repos: list[str], out_path: str, pmd: str | None, keep: bool) -> None:
+def _load_selection(manifest_path: str | None) -> dict:
+    """url -> selection metadata {stratum_lang, tier, stars, rank} from a sampling manifest,
+    so results can be grouped by how each repo was selected."""
+    if not manifest_path or not os.path.isfile(manifest_path):
+        return {}
+    try:
+        m = json.load(open(manifest_path))
+    except Exception:
+        return {}
+    sel = {}
+    for s in m.get("strata", []):
+        for it in s.get("selected", []):
+            sel[it["url"]] = {"stratum_lang": s.get("lang"), "tier": s.get("tier"),
+                              "stars": it.get("stars"), "rank": it.get("rank")}
+    return sel
+
+
+def run(repos: list[str], out_path: str, pmd: str | None, keep: bool,
+        manifest_path: str | None = None) -> None:
     results = {}
     if os.path.exists(out_path):
         try:
             results = {r["repo"]: r for r in json.load(open(out_path))}
         except Exception:
             results = {}
+    selection = _load_selection(manifest_path)
     work = tempfile.mkdtemp(prefix="cdiv-study-")
     total = len(repos)
     print(f"Coupling Divergence study: {total} repositories | references: class WMC>=47, "
@@ -233,7 +252,8 @@ def run(repos: list[str], out_path: str, pmd: str | None, keep: bool) -> None:
             a = analyse(dest, pmd if lang == "java" else None)
         except Exception as e:
             a = {"error": f"{type(e).__name__}: {e}"}
-        row = {"repo": url, "name": name, "lang": lang, "commit": sha, "date": date, **a}
+        row = {"repo": url, "name": name, "lang": lang, "commit": sha, "date": date,
+               **selection.get(url, {}), **a}
         results[url] = row
         json.dump(list(results.values()), open(out_path, "w"), indent=2)
         cv = row.get("class_vs_wmc47", {})
@@ -255,7 +275,8 @@ def run(repos: list[str], out_path: str, pmd: str | None, keep: bool) -> None:
 # ---------------------------------------------------------------------------
 
 CSV_COLUMNS = [
-    "name", "repo", "lang", "kind", "commit", "date", "n_files", "n_funcs",
+    "name", "repo", "lang", "kind", "stratum_lang", "tier", "stars", "rank",
+    "commit", "date", "n_files", "n_funcs",
     "wmc_gods", "gen_class_outliers", "class_lift", "class_recall", "class_fisher_p",
     "cc_gods", "gen_method_outliers", "method_lift", "method_recall", "method_fisher_p",
     "pmd_gods", "class_lift_vs_pmd", "wmc_only_leaves", "wmc_only_leaves_flagged_by_gen",
@@ -267,7 +288,9 @@ def _row_to_csv(r: dict) -> dict:
     pv = r.get("class_vs_pmd") or {}
     return {
         "name": r.get("name"), "repo": r.get("repo"), "lang": r.get("lang"),
-        "kind": r.get("kind"), "commit": r.get("commit"), "date": r.get("date"),
+        "kind": r.get("kind"), "stratum_lang": r.get("stratum_lang"), "tier": r.get("tier"),
+        "stars": r.get("stars"), "rank": r.get("rank"),
+        "commit": r.get("commit"), "date": r.get("date"),
         "n_files": r.get("n_files"), "n_funcs": r.get("n_funcs"),
         "wmc_gods": r.get("wmc_gods"), "gen_class_outliers": r.get("gen_class_outliers"),
         "class_lift": cv.get("lift"), "class_recall": cv.get("recall"),
@@ -340,6 +363,17 @@ def _summary(rows: list[dict]) -> None:
                   f"95% CI {p['ci95_lift']} (excludes 1: {p['excludes_1']}) | "
                   f"individually significant {p['sig_repos']}/{p['n_repos']} | "
                   f"repos for CI half-width 0.2 on log-lift: ~{p['n_for_ci_halfwidth_0.2']}")
+    # grouped by popularity tier and by type, so a difference across strata is visible
+    for dim in ("tier", "kind"):
+        groups = defaultdict(list)
+        for r in ok:
+            groups[r.get(dim)].append(r)
+        if len(groups) > 1 or (groups and None not in groups):
+            print(f"\nBY {dim.upper()} (class vs WMC>=47):")
+            for g, rs in sorted(groups.items(), key=lambda kv: str(kv[0])):
+                lifts = [r["class_vs_wmc47"]["lift"] for r in rs if r["class_vs_wmc47"]["lift"]]
+                ml = round(sum(lifts) / len(lifts), 2) if lifts else None
+                print(f"  {str(g):12} {len(rs):>2} repos  mean class lift {ml}")
     kinds = Counter(r.get("kind") for r in ok)
     print(f"\nREALIZED TYPE MIX (post-hoc heuristic): "
           f"{dict(kinds)} over {len(ok)} repos")
@@ -400,6 +434,12 @@ COLUMNS
   kind                             application or library, a post-hoc heuristic (container or
                                    deploy descriptor, a binary-crate / __main__ / main entry);
                                    reported so the sample's type mix is visible, not controlled
+  stratum_lang, tier, stars, rank  selection metadata from the sampling manifest: the
+                                   language and popularity tier the repo was drawn from, its
+                                   star count and rank at sampling time. Group results by
+                                   these (tier, language, kind) to check the effect is stable
+                                   across strata. `repo` is the full clone URL and `commit`
+                                   the exact revision, so any row checks back against the code.
   n_files, n_funcs                 source files and functions parsed (tests excluded)
   wmc_gods                         files with WMC >= 47
   gen_class_outliers               files whose cumulated divergence is a modified-z outlier
@@ -444,9 +484,9 @@ def main(argv: list[str] | None = None) -> int:
     repos = DEFAULT_REPOS
     if args.repos:
         repos = [l.strip() for l in open(args.repos) if l.strip() and not l.startswith("#")]
-    run(repos, args.out, args.pmd, args.keep)
+    manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
+    run(repos, args.out, args.pmd, args.keep, manifest)
     if args.anc:
-        manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
         write_anc(list({r["repo"]: r for r in json.load(open(args.out))}.values()),
                   args.anc, frame_files=[args.repos, manifest])
     return 0
