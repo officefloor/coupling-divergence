@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "study":
         repos = study.DEFAULT_REPOS
         if args.repos:
-            repos = [x.strip() for x in open(args.repos) if x.strip() and not x.startswith("#")]
+            repos = study.read_repo_list(args.repos)
         manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
         study.run(repos, args.out, args.pmd, args.keep, manifest)
         if args.anc:

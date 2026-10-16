@@ -1,0 +1,497 @@
+[
+  {
+    "repo": "https://github.com/DeusData/codebase-memory-mcp.git   # high, 46692 stars",
+    "name": "codebase-memory-mcp.git   # high, 46692 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/videolan/vlc.git   # high, 20073 stars",
+    "name": "vlc.git   # high, 20073 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/facebook/zstd.git   # high, 28035 stars",
+    "name": "zstd.git   # high, 28035 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/theori-io/nrsc5.git   # low, 970 stars",
+    "name": "nrsc5.git   # low, 970 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Forairaaaaa/Monica.git   # low, 979 stars",
+    "name": "Monica.git   # low, 979 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/avislab/STM32F103.git   # low, 976 stars",
+    "name": "STM32F103.git   # low, 976 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/rfjakob/earlyoom.git   # mid, 4344 stars",
+    "name": "earlyoom.git   # mid, 4344 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/KernelSU-Next/KernelSU-Next.git   # mid, 4479 stars",
+    "name": "KernelSU-Next.git   # mid, 4479 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/blinker-iot/blinker-esp-idf.git   # mid, 4292 stars",
+    "name": "blinker-esp-idf.git   # mid, 4292 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/JustArchiNET/ArchiSteamFarm.git   # high, 13757 stars",
+    "name": "ArchiSteamFarm.git   # high, 13757 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Flow-Launcher/Flow.Launcher.git   # high, 15805 stars",
+    "name": "Flow.Launcher.git   # high, 15805 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/MudBlazor/MudBlazor.git   # high, 10637 stars",
+    "name": "MudBlazor.git   # high, 10637 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Unity-Technologies/UnityPlayground.git   # low, 973 stars",
+    "name": "UnityPlayground.git   # low, 973 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Pathoschild/StardewMods.git   # low, 954 stars",
+    "name": "StardewMods.git   # low, 954 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/kevin-montrose/Sigil.git   # low, 989 stars",
+    "name": "Sigil.git   # low, 989 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/ExcelDataReader/ExcelDataReader.git   # mid, 4422 stars",
+    "name": "ExcelDataReader.git   # mid, 4422 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/marian42/wavefunctioncollapse.git   # mid, 4861 stars",
+    "name": "wavefunctioncollapse.git   # mid, 4861 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/dremin/RetroBar.git   # mid, 4422 stars",
+    "name": "RetroBar.git   # mid, 4422 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/ggml-org/whisper.cpp.git   # high, 54432 stars",
+    "name": "whisper.cpp.git   # high, 54432 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Tencent/ncnn.git   # high, 23963 stars",
+    "name": "ncnn.git   # high, 23963 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/ml-explore/mlx.git   # high, 28807 stars",
+    "name": "mlx.git   # high, 28807 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/microsoft/vswhere.git   # low, 995 stars",
+    "name": "vswhere.git   # low, 995 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/gnina/gnina.git   # low, 992 stars",
+    "name": "gnina.git   # low, 992 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/electronicarts/dem-bones.git   # low, 994 stars",
+    "name": "dem-bones.git   # low, 994 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/microsoft/WindowsAppSDK.git   # mid, 4703 stars",
+    "name": "WindowsAppSDK.git   # mid, 4703 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Tencent/TNN.git   # mid, 4659 stars",
+    "name": "TNN.git   # mid, 4659 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/anyrtcIO-Community/anyRTC-RTMP-OpenSource.git   # mid, 4913 stars",
+    "name": "anyRTC-RTMP-OpenSource.git   # mid, 4913 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/infiniflow/ragflow.git   # high, 92317 stars",
+    "name": "ragflow.git   # high, 92317 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/iawia002/lux.git   # high, 31776 stars",
+    "name": "lux.git   # high, 31776 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/XIU2/CloudflareSpeedTest.git   # high, 29459 stars",
+    "name": "CloudflareSpeedTest.git   # high, 29459 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Tnze/go-mc.git   # low, 982 stars",
+    "name": "go-mc.git   # low, 982 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/buger/goterm.git   # low, 983 stars",
+    "name": "goterm.git   # low, 983 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/v2fly/geoip.git   # low, 970 stars",
+    "name": "geoip.git   # low, 970 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/NVIDIA/nvidia-container-toolkit.git   # mid, 4594 stars",
+    "name": "nvidia-container-toolkit.git   # mid, 4594 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/werf/werf.git   # mid, 4737 stars",
+    "name": "werf.git   # mid, 4737 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/projectdiscovery/interactsh.git   # mid, 4591 stars",
+    "name": "interactsh.git   # mid, 4591 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/lenve/vhr.git   # high, 28031 stars",
+    "name": "vhr.git   # high, 28031 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/alibaba/nacos.git   # high, 33458 stars",
+    "name": "nacos.git   # high, 33458 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/JakeWharton/butterknife.git   # high, 25324 stars",
+    "name": "butterknife.git   # high, 25324 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/robert-bor/aho-corasick.git   # low, 994 stars",
+    "name": "aho-corasick.git   # low, 994 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/vaadin/hilla.git   # low, 983 stars",
+    "name": "hilla.git   # low, 983 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Chion82/WeChatMomentStat-Android.git   # low, 991 stars",
+    "name": "WeChatMomentStat-Android.git   # low, 991 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/spring-cloud/spring-cloud-gateway.git   # mid, 4912 stars",
+    "name": "spring-cloud-gateway.git   # mid, 4912 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/fuzhengwei/small-spring.git   # mid, 4901 stars",
+    "name": "small-spring.git   # mid, 4901 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Querz/mcaselector.git   # mid, 4917 stars",
+    "name": "mcaselector.git   # mid, 4917 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/NaiboWang/EasySpider.git   # high, 44688 stars",
+    "name": "EasySpider.git   # high, 44688 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/ryanmcdermott/clean-code-javascript.git   # high, 94731 stars",
+    "name": "clean-code-javascript.git   # high, 94731 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/mui/material-ui.git   # high, 99226 stars",
+    "name": "material-ui.git   # high, 99226 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/PactInteractive/image-downloader.git   # low, 989 stars",
+    "name": "image-downloader.git   # low, 989 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/christina-de-martinez/babel-plugin-glowup-vibes.git   # low, 990 stars",
+    "name": "babel-plugin-glowup-vibes.git   # low, 990 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/hukaibaihu/vue-org-tree.git   # low, 995 stars",
+    "name": "vue-org-tree.git   # low, 995 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/oframe/ogl.git   # mid, 4673 stars",
+    "name": "ogl.git   # mid, 4673 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/mpetroff/pannellum.git   # mid, 4910 stars",
+    "name": "pannellum.git   # mid, 4910 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/exif-js/exif-js.git   # mid, 4980 stars",
+    "name": "exif-js.git   # mid, 4980 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/Qloapps/QloApps.git   # high, 14432 stars",
+    "name": "QloApps.git   # high, 14432 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/symfony/console.git   # high, 9813 stars",
+    "name": "console.git   # high, 9813 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/walkor/workerman.git   # high, 11545 stars",
+    "name": "workerman.git   # high, 11545 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/scribu/wp-posts-to-posts.git   # low, 972 stars",
+    "name": "wp-posts-to-posts.git   # low, 972 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/BRACKETS-by-TRIAD/craftable.git   # low, 987 stars",
+    "name": "craftable.git   # low, 987 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/csdeshang/DSPlatform-open.git   # low, 994 stars",
+    "name": "DSPlatform-open.git   # low, 994 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/php-debugbar/php-debugbar.git   # mid, 4383 stars",
+    "name": "php-debugbar.git   # mid, 4383 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/LycheeOrg/Lychee.git   # mid, 4311 stars",
+    "name": "Lychee.git   # mid, 4311 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/corcel/corcel.git   # mid, 4770 stars",
+    "name": "corcel.git   # mid, 4770 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/microsoft/markitdown.git   # high, 190504 stars",
+    "name": "markitdown.git   # high, 190504 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/harry0703/MoneyPrinterTurbo.git   # high, 131926 stars",
+    "name": "MoneyPrinterTurbo.git   # high, 131926 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/microsoft/autogen.git   # high, 61441 stars",
+    "name": "autogen.git   # high, 61441 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/jazzband/geojson.git   # low, 998 stars",
+    "name": "geojson.git   # low, 998 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/google-research/augmix.git   # low, 991 stars",
+    "name": "augmix.git   # low, 991 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/HKUDS/PhoneCLI.git   # low, 990 stars",
+    "name": "PhoneCLI.git   # low, 990 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/hynek/structlog.git   # mid, 4975 stars",
+    "name": "structlog.git   # mid, 4975 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/pyinvoke/invoke.git   # mid, 4780 stars",
+    "name": "invoke.git   # mid, 4780 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/llm-attacks/llm-attacks.git   # mid, 4831 stars",
+    "name": "llm-attacks.git   # mid, 4831 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/heartcombo/devise.git   # high, 24355 stars",
+    "name": "devise.git   # high, 24355 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/discourse/discourse.git   # high, 47983 stars",
+    "name": "discourse.git   # high, 47983 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/matteocrippa/awesome-swift.git   # high, 26320 stars",
+    "name": "awesome-swift.git   # high, 26320 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/dmayer/idb.git   # low, 953 stars",
+    "name": "idb.git   # low, 953 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/rsl/stringex.git   # low, 986 stars",
+    "name": "stringex.git   # low, 986 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/jhund/filterrific.git   # low, 909 stars",
+    "name": "filterrific.git   # low, 909 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/jruby/jruby.git   # mid, 3923 stars",
+    "name": "jruby.git   # mid, 3923 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/xcpretty/xcpretty.git   # mid, 4033 stars",
+    "name": "xcpretty.git   # mid, 4033 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/activemerchant/active_merchant.git   # mid, 4602 stars",
+    "name": "active_merchant.git   # mid, 4602 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/tree-sitter/tree-sitter.git   # high, 27202 stars",
+    "name": "tree-sitter.git   # high, 27202 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/zed-industries/zed.git   # high, 91807 stars",
+    "name": "zed.git   # high, 91807 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/nautechsystems/nautilus_trader.git   # high, 30139 stars",
+    "name": "nautilus_trader.git   # high, 30139 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/tokio-rs/slab.git   # low, 948 stars",
+    "name": "slab.git   # low, 948 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/paperclip-rs/paperclip.git   # low, 970 stars",
+    "name": "paperclip.git   # low, 970 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/omerbenamram/evtx.git   # low, 967 stars",
+    "name": "evtx.git   # low, 967 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/szabodanika/microbin.git   # mid, 4606 stars",
+    "name": "microbin.git   # mid, 4606 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/cberner/redb.git   # mid, 4851 stars",
+    "name": "redb.git   # mid, 4851 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/aya-rs/aya.git   # mid, 4857 stars",
+    "name": "aya.git   # mid, 4857 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/vuejs/core.git   # high, 54648 stars",
+    "name": "core.git   # high, 54648 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/nexu-io/open-design.git   # high, 101439 stars",
+    "name": "open-design.git   # high, 101439 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/angular/angular.git   # high, 101062 stars",
+    "name": "angular.git   # high, 101062 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/fabiospampinato/vscode-todo-plus.git   # low, 998 stars",
+    "name": "vscode-todo-plus.git   # low, 998 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/PicGo/PicGo-Core.git   # low, 991 stars",
+    "name": "PicGo-Core.git   # low, 991 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/joBr99/nspanel-lovelace-ui.git   # low, 997 stars",
+    "name": "nspanel-lovelace-ui.git   # low, 997 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/aipoch/open-science.git   # mid, 4929 stars",
+    "name": "open-science.git   # mid, 4929 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/latitude-dev/latitude-llm.git   # mid, 4722 stars",
+    "name": "latitude-llm.git   # mid, 4722 stars",
+    "error": "clone failed"
+  },
+  {
+    "repo": "https://github.com/liveblocks/liveblocks.git   # mid, 4755 stars",
+    "name": "liveblocks.git   # mid, 4755 stars",
+    "error": "clone failed"
+  }
+]

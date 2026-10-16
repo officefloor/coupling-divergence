@@ -198,6 +198,17 @@ def analyse(root: str, pmd: str | None) -> dict:
     return out
 
 
+def read_repo_list(path: str) -> list[str]:
+    """Git URLs from a repo-list file, tolerating inline comments (the sampler writes
+    `URL   # tier, N stars`) and whole-line comments and blanks."""
+    out = []
+    for ln in open(path):
+        url = ln.split("#", 1)[0].strip()
+        if url:
+            out.append(url)
+    return out
+
+
 def _load_selection(manifest_path: str | None) -> dict:
     """url -> selection metadata {stratum_lang, tier, stars, rank} from a sampling manifest,
     so results can be grouped by how each repo was selected."""
@@ -483,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     repos = DEFAULT_REPOS
     if args.repos:
-        repos = [l.strip() for l in open(args.repos) if l.strip() and not l.startswith("#")]
+        repos = read_repo_list(args.repos)
     manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
     run(repos, args.out, args.pmd, args.keep, manifest)
     if args.anc:
@@ -501,7 +512,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     repos = DEFAULT_REPOS
     if args.repos:
-        repos = [l.strip() for l in open(args.repos) if l.strip() and not l.startswith("#")]
+        repos = read_repo_list(args.repos)
     run(repos, args.out, args.pmd, args.keep)
     return 0
 
