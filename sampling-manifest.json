@@ -22,6 +22,10 @@
     "mid": "stars:1000..5000",
     "low": "stars:200..1000"
   },
+  "excluded_owners": [
+    "officefloor",
+    "sagenschneider"
+  ],
   "note": "Frozen frame. Re-running reproduces the METHOD; GitHub is a moving target, so the exact list is pinned here, not guaranteed identical on re-run. Tier is a popularity proxy for quality; app-vs-library is reported post-hoc by the study.",
   "n_selected": 99,
   "strata": [
@@ -29,7 +33,7 @@
       "lang": "java",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:Java stars:>5000 archived:false fork:false",
+      "query": "language:Java stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 595,
       "fetched": 100,
       "selected": [
@@ -58,8 +62,8 @@
       "lang": "java",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:Java stars:1000..5000 archived:false fork:false",
-      "total_matched": 2865,
+      "query": "language:Java stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
+      "total_matched": 2864,
       "fetched": 100,
       "selected": [
         {
@@ -87,7 +91,7 @@
       "lang": "java",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:Java stars:200..1000 archived:false fork:false",
+      "query": "language:Java stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 10473,
       "fetched": 100,
       "selected": [
@@ -116,20 +120,20 @@
       "lang": "python",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:Python stars:>5000 archived:false fork:false",
+      "query": "language:Python stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 2154,
       "fetched": 100,
       "selected": [
         {
           "full_name": "microsoft/markitdown",
           "url": "https://github.com/microsoft/markitdown.git",
-          "stars": 190503,
+          "stars": 190504,
           "rank": 9
         },
         {
           "full_name": "harry0703/MoneyPrinterTurbo",
           "url": "https://github.com/harry0703/MoneyPrinterTurbo.git",
-          "stars": 131924,
+          "stars": 131926,
           "rank": 24
         },
         {
@@ -145,8 +149,8 @@
       "lang": "python",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:Python stars:1000..5000 archived:false fork:false",
-      "total_matched": 8874,
+      "query": "language:Python stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
+      "total_matched": 8875,
       "fetched": 100,
       "selected": [
         {
@@ -174,7 +178,7 @@
       "lang": "python",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:Python stars:200..1000 archived:false fork:false",
+      "query": "language:Python stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 38830,
       "fetched": 100,
       "selected": [
@@ -203,7 +207,7 @@
       "lang": "javascript",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:JavaScript stars:>5000 archived:false fork:false",
+      "query": "language:JavaScript stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 1369,
       "fetched": 100,
       "selected": [
@@ -232,7 +236,7 @@
       "lang": "javascript",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:JavaScript stars:1000..5000 archived:false fork:false",
+      "query": "language:JavaScript stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 5413,
       "fetched": 100,
       "selected": [
@@ -261,7 +265,7 @@
       "lang": "javascript",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:JavaScript stars:200..1000 archived:false fork:false",
+      "query": "language:JavaScript stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 21415,
       "fetched": 100,
       "selected": [
@@ -290,7 +294,7 @@
       "lang": "typescript",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:TypeScript stars:>5000 archived:false fork:false",
+      "query": "language:TypeScript stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 1623,
       "fetched": 100,
       "selected": [
@@ -303,7 +307,7 @@
         {
           "full_name": "nexu-io/open-design",
           "url": "https://github.com/nexu-io/open-design.git",
-          "stars": 101438,
+          "stars": 101439,
           "rank": 22
         },
         {
@@ -319,7 +323,7 @@
       "lang": "typescript",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:TypeScript stars:1000..5000 archived:false fork:false",
+      "query": "language:TypeScript stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 4486,
       "fetched": 100,
       "selected": [
@@ -348,7 +352,7 @@
       "lang": "typescript",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:TypeScript stars:200..1000 archived:false fork:false",
+      "query": "language:TypeScript stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 14819,
       "fetched": 100,
       "selected": [
@@ -377,7 +381,7 @@
       "lang": "go",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:Go stars:>5000 archived:false fork:false",
+      "query": "language:Go stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 918,
       "fetched": 100,
       "selected": [
@@ -406,7 +410,7 @@
       "lang": "go",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:Go stars:1000..5000 archived:false fork:false",
+      "query": "language:Go stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 2745,
       "fetched": 100,
       "selected": [
@@ -435,7 +439,7 @@
       "lang": "go",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:Go stars:200..1000 archived:false fork:false",
+      "query": "language:Go stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 8474,
       "fetched": 100,
       "selected": [
@@ -464,7 +468,7 @@
       "lang": "c",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:C stars:>5000 archived:false fork:false",
+      "query": "language:C stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 418,
       "fetched": 100,
       "selected": [
@@ -493,8 +497,8 @@
       "lang": "c",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:C stars:1000..5000 archived:false fork:false",
-      "total_matched": 1957,
+      "query": "language:C stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
+      "total_matched": 1958,
       "fetched": 100,
       "selected": [
         {
@@ -522,7 +526,7 @@
       "lang": "c",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:C stars:200..1000 archived:false fork:false",
+      "query": "language:C stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 7634,
       "fetched": 100,
       "selected": [
@@ -551,7 +555,7 @@
       "lang": "c++",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:C++ stars:>5000 archived:false fork:false",
+      "query": "language:C++ stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 585,
       "fetched": 100,
       "selected": [
@@ -580,7 +584,7 @@
       "lang": "c++",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:C++ stars:1000..5000 archived:false fork:false",
+      "query": "language:C++ stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 2565,
       "fetched": 100,
       "selected": [
@@ -609,7 +613,7 @@
       "lang": "c++",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:C++ stars:200..1000 archived:false fork:false",
+      "query": "language:C++ stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 10412,
       "fetched": 100,
       "selected": [
@@ -638,7 +642,7 @@
       "lang": "c#",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:C# stars:>5000 archived:false fork:false",
+      "query": "language:C# stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 278,
       "fetched": 100,
       "selected": [
@@ -667,7 +671,7 @@
       "lang": "c#",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:C# stars:1000..5000 archived:false fork:false",
+      "query": "language:C# stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 1407,
       "fetched": 100,
       "selected": [
@@ -696,7 +700,7 @@
       "lang": "c#",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:C# stars:200..1000 archived:false fork:false",
+      "query": "language:C# stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 6139,
       "fetched": 100,
       "selected": [
@@ -725,7 +729,7 @@
       "lang": "ruby",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:Ruby stars:>5000 archived:false fork:false",
+      "query": "language:Ruby stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 134,
       "fetched": 100,
       "selected": [
@@ -754,7 +758,7 @@
       "lang": "ruby",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:Ruby stars:1000..5000 archived:false fork:false",
+      "query": "language:Ruby stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 760,
       "fetched": 100,
       "selected": [
@@ -783,7 +787,7 @@
       "lang": "ruby",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:Ruby stars:200..1000 archived:false fork:false",
+      "query": "language:Ruby stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 2937,
       "fetched": 100,
       "selected": [
@@ -812,7 +816,7 @@
       "lang": "php",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:PHP stars:>5000 archived:false fork:false",
+      "query": "language:PHP stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 250,
       "fetched": 100,
       "selected": [
@@ -841,7 +845,7 @@
       "lang": "php",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:PHP stars:1000..5000 archived:false fork:false",
+      "query": "language:PHP stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 1164,
       "fetched": 100,
       "selected": [
@@ -870,7 +874,7 @@
       "lang": "php",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:PHP stars:200..1000 archived:false fork:false",
+      "query": "language:PHP stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 4533,
       "fetched": 100,
       "selected": [
@@ -899,7 +903,7 @@
       "lang": "rust",
       "tier": "high",
       "stars_qualifier": "stars:>5000",
-      "query": "language:Rust stars:>5000 archived:false fork:false",
+      "query": "language:Rust stars:>5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 526,
       "fetched": 100,
       "selected": [
@@ -928,7 +932,7 @@
       "lang": "rust",
       "tier": "mid",
       "stars_qualifier": "stars:1000..5000",
-      "query": "language:Rust stars:1000..5000 archived:false fork:false",
+      "query": "language:Rust stars:1000..5000 archived:false fork:false -user:officefloor -user:sagenschneider",
       "total_matched": 1772,
       "fetched": 100,
       "selected": [
@@ -957,8 +961,8 @@
       "lang": "rust",
       "tier": "low",
       "stars_qualifier": "stars:200..1000",
-      "query": "language:Rust stars:200..1000 archived:false fork:false",
-      "total_matched": 5724,
+      "query": "language:Rust stars:200..1000 archived:false fork:false -user:officefloor -user:sagenschneider",
+      "total_matched": 5726,
       "fetched": 100,
       "selected": [
         {

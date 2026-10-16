@@ -148,12 +148,21 @@ search query, how many repositories matched each stratum (so the selection proba
 visible), and which were chosen with their star counts. `repos-exemplar.txt` keeps the
 earlier hand-picked well-known set for sanity.
 
+The sampler **excludes the author's own GitHub owners** (`officefloor`, `sagenschneider`)
+by construction, applied both as a `-user:` query qualifier and as a post-fetch filter and
+recorded in the manifest, so the author's own code can never enter the sample. That is the
+conflict-of-interest guard, encoded rather than trusted.
+
 One caveat stated plainly: GitHub is a moving target, so rerunning the sampler reproduces
 the **method**, not necessarily the identical list. The committed manifest and the per-repo
 commits in the results pin the exact population used. Popularity tier is a proxy for
 quality, not a measurement of it, and application-vs-library type is not controlled by the
 sampler; the study classifies each repo post-hoc (a heuristic) and reports the realized
 mix, so the sample's composition is visible rather than assumed.
+
+`--anc` bundles the frame (the repo list and `sampling-manifest.json`) with the results and
+README, so the paper's attachment shows how the population was chosen as well as what was
+found.
 
 What it measures per repo: the class-cumulated generation outlier against the god-class size
 reference `WMC >= 47`, the method generation outlier against the brain-method reference

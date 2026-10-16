@@ -116,7 +116,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.anc:
             import json as _json
             rows = list({r["repo"]: r for r in _json.load(open(args.out))}.values())
-            study.write_anc(rows, args.anc)
+            manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
+            study.write_anc(rows, args.anc, frame_files=[args.repos, manifest])
         return 0
     if args.cmd == "sample":
         return sample.main(["-o", args.out, "-m", args.manifest, "--k", str(args.k),

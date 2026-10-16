@@ -73,8 +73,8 @@ https://github.com/php-debugbar/php-debugbar.git   # mid, 4383 stars
 https://github.com/LycheeOrg/Lychee.git   # mid, 4311 stars
 https://github.com/corcel/corcel.git   # mid, 4770 stars
 # --- python ---
-https://github.com/microsoft/markitdown.git   # high, 190503 stars
-https://github.com/harry0703/MoneyPrinterTurbo.git   # high, 131924 stars
+https://github.com/microsoft/markitdown.git   # high, 190504 stars
+https://github.com/harry0703/MoneyPrinterTurbo.git   # high, 131926 stars
 https://github.com/microsoft/autogen.git   # high, 61441 stars
 https://github.com/jazzband/geojson.git   # low, 998 stars
 https://github.com/google-research/augmix.git   # low, 991 stars
@@ -104,7 +104,7 @@ https://github.com/cberner/redb.git   # mid, 4851 stars
 https://github.com/aya-rs/aya.git   # mid, 4857 stars
 # --- typescript ---
 https://github.com/vuejs/core.git   # high, 54648 stars
-https://github.com/nexu-io/open-design.git   # high, 101438 stars
+https://github.com/nexu-io/open-design.git   # high, 101439 stars
 https://github.com/angular/angular.git   # high, 101062 stars
 https://github.com/fabiospampinato/vscode-todo-plus.git   # low, 998 stars
 https://github.com/PicGo/PicGo-Core.git   # low, 991 stars

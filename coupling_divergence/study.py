@@ -349,10 +349,16 @@ def _summary(rows: list[dict]) -> None:
           "post-hoc heuristic, not controlled by sampling.")
 
 
-def write_anc(rows: list[dict], anc_dir: str) -> None:
-    """Write the paper's ancillary-data package: a self-contained results table + README."""
+def write_anc(rows: list[dict], anc_dir: str, frame_files=None) -> None:
+    """Write the paper's ancillary-data package: results table + README, plus the frame
+    (the repo list and sampling manifest) so the attachment shows how the population was
+    chosen as well as what was found."""
     os.makedirs(anc_dir, exist_ok=True)
     write_csv(rows, os.path.join(anc_dir, "results.csv"))
+    for f in (frame_files or []):
+        if f and os.path.isfile(f):
+            shutil.copy(f, os.path.join(anc_dir, os.path.basename(f)))
+            print(f"  + frame file {os.path.basename(f)}")
     ok = [r for r in rows if not r.get("error") and r.get("class_vs_wmc47")]
     pc = _pooled_lift(ok, "class_vs_wmc47")
     langs = sorted({r.get("lang") for r in ok})
@@ -440,7 +446,9 @@ def main(argv: list[str] | None = None) -> int:
         repos = [l.strip() for l in open(args.repos) if l.strip() and not l.startswith("#")]
     run(repos, args.out, args.pmd, args.keep)
     if args.anc:
-        write_anc(list({r["repo"]: r for r in json.load(open(args.out))}.values()), args.anc)
+        manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
+        write_anc(list({r["repo"]: r for r in json.load(open(args.out))}.values()),
+                  args.anc, frame_files=[args.repos, manifest])
     return 0
 
 

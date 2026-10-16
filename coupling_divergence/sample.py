@@ -41,6 +41,10 @@ LANGS = {
 }
 # Popularity tiers, a proxy for the spread from heavily-maintained to rougher code.
 TIERS = {"high": "stars:>5000", "mid": "stars:1000..5000", "low": "stars:200..1000"}
+# Owners excluded by default so the author's own ecosystem can never enter the sample. This
+# is the conflict-of-interest guard, encoded rather than trusted: it is applied both as a
+# GitHub `-user:` query qualifier AND as a post-fetch filter, and recorded in the manifest.
+EXCLUDE_OWNERS = {"officefloor", "sagenschneider"}
 
 
 def _search(query: str, per_page: int) -> dict:
@@ -59,15 +63,19 @@ def _search(query: str, per_page: int) -> dict:
 
 
 def sample(langs: list[str], tiers: list[str], k: int, seed: int, pool: int,
-           pause: float = 2.0) -> dict:
+           exclude: set | None = None, pause: float = 2.0) -> dict:
+    exclude = {o.lower() for o in (exclude if exclude is not None else EXCLUDE_OWNERS)}
     rng = random.Random(seed)
     chosen: dict = {}            # full_name -> (lang, tier, item)
     strata: list = []
     for lang in langs:
         for tier in tiers:
-            q = f"language:{LANGS[lang]} {TIERS[tier]} archived:false fork:false"
+            q = (f"language:{LANGS[lang]} {TIERS[tier]} archived:false fork:false"
+                 + "".join(f" -user:{o}" for o in sorted(exclude)))
             res = _search(q, pool)
-            items = [it for it in res.get("items", []) if it.get("full_name")]
+            items = [it for it in res.get("items", [])
+                     if it.get("full_name")
+                     and it["full_name"].split("/")[0].lower() not in exclude]
             fetched = [{"full_name": it["full_name"], "url": it["clone_url"],
                         "stars": it.get("stargazers_count"), "rank": r}
                        for r, it in enumerate(items, 1)]
@@ -89,6 +97,7 @@ def sample(langs: list[str], tiers: list[str], k: int, seed: int, pool: int,
         "sampled_at_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
         "seed": seed, "k_per_stratum": k, "pool_per_stratum": pool,
         "langs": langs, "tiers": {t: TIERS[t] for t in tiers},
+        "excluded_owners": sorted(exclude),
         "note": ("Frozen frame. Re-running reproduces the METHOD; GitHub is a moving target, "
                  "so the exact list is pinned here, not guaranteed identical on re-run. "
                  "Tier is a popularity proxy for quality; app-vs-library is reported post-hoc "
@@ -126,12 +135,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--langs", default=",".join(LANGS),
                     help="comma list from: " + ",".join(LANGS))
     ap.add_argument("--tiers", default="high,mid,low")
+    ap.add_argument("--exclude", default=",".join(sorted(EXCLUDE_OWNERS)),
+                    help="comma list of GitHub owners to exclude (COI guard)")
     args = ap.parse_args(argv)
     langs = [x.strip() for x in args.langs.split(",") if x.strip() in LANGS]
     tiers = [x.strip() for x in args.tiers.split(",") if x.strip() in TIERS]
+    exclude = {x.strip() for x in args.exclude.split(",") if x.strip()}
     print(f"stratified GitHub sample: {len(langs)} languages x {len(tiers)} tiers x "
-          f"k={args.k}  (seed {args.seed})\n", flush=True)
-    manifest = sample(langs, tiers, args.k, args.seed, args.pool)
+          f"k={args.k}  (seed {args.seed})  excluding owners: {sorted(exclude)}\n", flush=True)
+    manifest = sample(langs, tiers, args.k, args.seed, args.pool, exclude)
     json.dump(manifest, open(args.manifest, "w"), indent=2)
     write_repos(manifest, args.out)
     print(f"wrote manifest -> {args.manifest}")
