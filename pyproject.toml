@@ -26,8 +26,10 @@ classifiers = [
 # Standalone and language-independent: lizard supplies the multi-language function list,
 # cyclomatic complexity and line ranges; everything above it is lexical. No other runtime
 # dependency. (Same substrate as impact-gate.)
-dependencies = ["lizard==1.24.1"]   # pinned: the function list and CC are lizard's; a
-                                      # version change can move every number
+# PINNED, not >=: lizard 1.24.x parses a Java class annotated @Entity then @Table(...) to
+# ZERO functions (study.check_parser fails closed on it). Same pin as the sibling experiment
+# spring-petclinic-rest-long-degradation-test; PMD 7.27.0 and CK 0.7.0 are pinned in study.py.
+dependencies = ["lizard==1.23.0"]
 
 [project.scripts]
 coupling-divergence = "coupling_divergence.cli:main"

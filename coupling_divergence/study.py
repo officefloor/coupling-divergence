@@ -614,31 +614,124 @@ def clone_at(url: str, dest: str, sha: str | None = None,
         return f"clone timeout ({timeout}s)"
 
 
+# PINNED tool versions, the same as the sibling experiment
+# (spring-petclinic-rest-long-degradation-test: requirements.txt, tools/pmd-version.txt,
+# tools/ck-version.txt, tools/ck-sha256.txt). Every number in the study is a lizard, PMD or
+# CK number, so a version change can move all of them; drift is refused, not tolerated.
+LIZARD_VERSION = "1.23.0"
+PMD_VERSION = "7.27.0"
+CK_VERSION = "0.7.0"
+CK_SHA256 = "2ddfdc275b6b59c2033e03253c4fec511c338fe494a10b70f651bc039a72c74d"
+
+# lizard 1.24.x regressed its Java state machine: a bare class annotation followed by a
+# parenthesised one (@Entity then @Table(...)) makes the WHOLE file parse to zero functions,
+# silently. Every JPA entity would vanish from the study. This fixture must parse.
+_PARSER_FIXTURE_PATH = "src/main/java/fixture/Fixture.java"
+_PARSER_FIXTURE = """package fixture;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "owners")
+public class Fixture {
+
+    @Column(name = "email")
+    private String email;
+
+    public String getEmail() {
+        return this.email;
+    }
+
+    @PrePersist
+    void normalise() {
+        if (this.email != null) {
+            this.email = this.email.toLowerCase();
+        }
+    }
+}
+"""
+_PARSER_EXPECTED = {"Fixture::getEmail", "Fixture::normalise"}
+
+
+class ParserBlind(RuntimeError):
+    """lizard cannot see functions it must see; the study cannot be measured with it."""
+
+
+def check_parser() -> None:
+    """Fail closed if the installed lizard is blind to annotated Java classes."""
+    import lizard
+    got = {f.name for f in lizard.analyze_file.analyze_source_code(
+        _PARSER_FIXTURE_PATH, _PARSER_FIXTURE).function_list}
+    if not _PARSER_EXPECTED <= got:
+        raise ParserBlind(
+            f"lizard {_lizard_version()} sees {sorted(got)} in an @Entity/@Table class, "
+            f"expected {sorted(_PARSER_EXPECTED)} (the lizard 1.24 Java regression). "
+            f"Install the pinned parser: pip install 'lizard=={LIZARD_VERSION}'")
+
+
+def _lizard_version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("lizard")
+    except Exception:
+        import lizard
+        return str(getattr(lizard, "version", "") or getattr(lizard, "__version__", ""))
+
+
+def pmd_version(pmd: str) -> str:
+    """PMD prints an ASCII-art banner before its version line, so take the line that starts
+    with 'PMD ' rather than the first line of output. "" if it cannot be run."""
+    try:
+        out = subprocess.run([pmd, "--version"], capture_output=True, text=True, timeout=120)
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return ""
+    for line in (out.stdout or "").splitlines():
+        line = line.strip()
+        if line.startswith("PMD "):
+            return line.split()[1]
+    return ""
+
+
+def _sha256(path: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def tool_versions(pmd: str | None, ck: str | None) -> dict:
     """The versions of every tool that shapes a measurement, recorded with each run so a
     replication can tell a tool change from a real difference."""
-    import hashlib
-    import lizard
     import platform
-    v = {"python": platform.python_version(),
-         "lizard": getattr(lizard, "version", None) or getattr(lizard, "__version__", None)}
+    v = {"python": platform.python_version(), "lizard": _lizard_version()}
     try:
         from importlib.metadata import version
-        v["lizard"] = version("lizard")
         v["coupling_divergence"] = version("coupling-divergence")
     except Exception:
         pass
     if pmd:
-        r = subprocess.run([pmd, "--version"], capture_output=True, text=True)
-        v["pmd"] = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) \
-            else None
+        v["pmd"] = pmd_version(pmd) or None
     if ck:
         try:
-            v["ck_jar"] = f"{os.path.basename(ck)} sha256:" + \
-                hashlib.sha256(open(ck, "rb").read()).hexdigest()[:16]
+            v["ck_sha256"] = _sha256(ck)
         except OSError:
-            v["ck_jar"] = os.path.basename(ck)
+            v["ck_sha256"] = None
     return v
+
+
+def tool_drift(tools: dict) -> list[str]:
+    """Every way the recorded tools differ from the pins; empty when all match."""
+    out = []
+    if tools.get("lizard") != LIZARD_VERSION:
+        out.append(f"lizard {tools.get('lizard')} != pinned {LIZARD_VERSION}")
+    if "pmd" in tools and tools["pmd"] != PMD_VERSION:
+        out.append(f"PMD {tools['pmd']} != pinned {PMD_VERSION}")
+    if "ck_sha256" in tools and tools["ck_sha256"] != CK_SHA256:
+        out.append(f"CK jar sha256 {str(tools['ck_sha256'])[:12]}... is not CK {CK_VERSION} "
+                   f"({CK_SHA256[:12]}...)")
+    return out
 
 
 def _load_selection(manifest_path: str | None) -> dict:
@@ -668,8 +761,12 @@ def run(repos: list, out_path: str, pmd: str | None, keep: bool,
             results = {r["repo"]: r for r in json.load(open(out_path))}
         except Exception:
             results = {}
+    check_parser()                      # fail closed on a blind Java parser
     selection = _load_selection(manifest_path)
     tools = tool_versions(pmd, ck)
+    for d in tool_drift(tools):
+        print(f"WARNING: tool drift -- {d}; results are not comparable with the pinned study",
+              flush=True)
     work = tempfile.mkdtemp(prefix="cdiv-study-")
     pins = [(r, None) if isinstance(r, str) else tuple(r) for r in repos]
     total = len(pins)

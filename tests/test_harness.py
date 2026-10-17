@@ -274,3 +274,26 @@ def test_explore_confirm_split_is_deterministic_and_balanced():
     halves = [compare_signals.half_of(u) for u in urls]
     assert halves == [compare_signals.half_of(u) for u in urls]
     assert 150 < halves.count("confirm") < 250
+
+
+# --- pinned tools (same pins as spring-petclinic-rest-long-degradation-test) ----------------
+
+def test_installed_lizard_is_the_pinned_one_and_sees_annotated_classes():
+    assert study._lizard_version() == study.LIZARD_VERSION
+    study.check_parser()          # raises ParserBlind under the lizard 1.24 Java regression
+
+
+def test_pmd_version_skips_the_ascii_banner():
+    fake = os.path.join(tempfile.mkdtemp(), "pmd")
+    open(fake, "w").write("#!/bin/sh\necho ' ____  __  __ ____'\necho '|  _ \\\\|  \\\\/  |'\n"
+                          "echo 'PMD 7.27.0 (abc, 2026-01-01)'\n")
+    os.chmod(fake, 0o755)
+    assert study.pmd_version(fake) == "7.27.0"
+
+
+def test_tool_drift_names_every_mismatch():
+    ok = {"lizard": study.LIZARD_VERSION, "pmd": study.PMD_VERSION,
+          "ck_sha256": study.CK_SHA256}
+    assert study.tool_drift(ok) == []
+    bad = {"lizard": "1.24.1", "pmd": "7.0.0", "ck_sha256": "0" * 64}
+    assert len(study.tool_drift(bad)) == 3

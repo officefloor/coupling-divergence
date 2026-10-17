@@ -204,6 +204,7 @@ def grow(langs: list[str], tiers: list[str], target: int, cap: int, hw: float, s
                   + (f"  SEARCH ERROR {err}" if err else ""), flush=True)
         return cand_cache[key]
 
+    study.check_parser()                # fail closed on a blind Java parser
     work = tempfile.mkdtemp(prefix="cdiv-grow-")
     tools = study.tool_versions(pmd, ck)
     selection: dict = {}
@@ -442,19 +443,24 @@ def main(argv: list[str] | None = None) -> int:
     # The oracles are part of the study: without PMD there is no GodClass reference, and
     # without CK the pre-registered H1/H2 (composite / coupling definitions) cannot be tested.
     missing = [n for n, v in (("PMD", args.pmd), ("CK", args.ck)) if not v]
-    canonical = params_default and not missing
+    drift = study.tool_drift(study.tool_versions(args.pmd, args.ck))
+    canonical = params_default and not missing and not drift
     pmd_label = args.pmd or "not found on PATH -- Java rows will omit the PMD comparison"
     ck_label = args.ck or "not given (--ck or CK_JAR) -- no CK/DECOR definitions; H1/H2 untestable"
     banner = ("=> CANONICAL STUDY CONFIGURATION (the published method; GitHub moves, so the "
               "exact population is re-measured with `study --repos repos.txt`)" if canonical
               else "=> non-default parameters: this is a DIFFERENT study" if not params_default
               else f"=> default parameters but missing oracle(s) {', '.join(missing)}: "
+                   "NOT the canonical study" if missing
+              else f"=> default parameters but tool drift ({'; '.join(drift)}): "
                    "NOT the canonical study")
     print(f"adaptive grow: target {args.target}/lang (cap {args.cap}, half-width {args.hw}) "
           f"over {len(langs)} languages x {len(tiers)} tiers  seed {args.seed}\n"
           f"substance floor: >= {args.min_funcs} functions, >= {args.min_univ} class universe\n"
           f"Java GodClass reference (PMD): {pmd_label}\n"
           f"Java cohesion/coupling panel (CK): {ck_label}\n"
+          f"pinned tools: lizard {study.LIZARD_VERSION}, PMD {study.PMD_VERSION}, "
+          f"CK {study.CK_VERSION}\n"
           f"{banner}\n", flush=True)
     rows = grow(langs, tiers, args.target, args.cap, args.hw, args.seed, args.pool,
                 args.min_funcs, args.min_univ, args.pmd, args.study_out, args.manifest,
