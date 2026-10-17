@@ -27,6 +27,13 @@ import re
 
 import lizard
 
+from . import cognitive as _cognitive
+
+# Per-function complexity definitions captured alongside the flow signal, so the comparison
+# matrix can spike each one (all language-neutral: five straight from lizard, cognitive from
+# the vendored Campbell estimator). Class-level values are the per-file sums of these.
+COMPLEXITY_FIELDS = ("cc", "cognitive", "nloc", "tokens", "params", "nesting")
+
 # Extensions lizard can parse that we scan. A superset; lizard skips what it cannot handle.
 SOURCE_EXTS = {
     ".java", ".kt", ".scala", ".groovy",
@@ -117,9 +124,11 @@ def analyze_tree(root: str, include_tests: bool = False) -> dict:
     """Per-function records plus per-file WMC for one checkout.
 
     Returns {"funcs": {func_id: {...}}, "wmc": {file: total_cc}}, where func_id is
-    (file, short_name) and each record has out_gen, in_gen, gain, cc, file, name."""
+    (file, short_name) and each record has out_gen, in_gen, gain, file, name, and the
+    complexity definitions in COMPLEXITY_FIELDS (cc, cognitive, nloc, tokens, params,
+    nesting) so the matrix can spike each one."""
     lines_cache: dict = {}
-    raw: list = []                      # (file, short, cc, start, end)
+    raw: list = []                      # (file, short, start, end, metrics_dict)
     for rel in source_files(root, include_tests):
         path = os.path.join(root, rel)
         try:
@@ -128,22 +137,37 @@ def analyze_tree(root: str, include_tests: bool = False) -> dict:
             continue
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:
-                lines_cache[rel] = fh.read().splitlines()
+                src_lines = fh.read().splitlines()
         except OSError:
             continue
+        lines_cache[rel] = src_lines
+        ext = os.path.splitext(rel)[1].lstrip(".")
         for fn in analysis.function_list:
-            raw.append((rel, _short(fn.name), int(fn.cyclomatic_complexity),
-                        int(fn.start_line), int(fn.end_line)))
+            s, e = int(fn.start_line), int(fn.end_line)
+            body_raw = "\n".join(src_lines[max(s - 1, 0):e])
+            md = {"cc": int(fn.cyclomatic_complexity),
+                  "nloc": int(getattr(fn, "nloc", 0) or 0),
+                  "tokens": int(getattr(fn, "token_count", 0) or 0),
+                  "params": int(getattr(fn, "parameter_count", 0) or 0),
+                  "nesting": int(getattr(fn, "max_nesting_depth", 0) or 0),
+                  "cognitive": _cognitive.cognitive_complexity(body_raw, ext)}
+            raw.append((rel, _short(fn.name), s, e, md))
     if not raw:
         return {"funcs": {}, "wmc": {}}
 
     names = {r[1] for r in raw}
     out_gen: dict = {}
     in_by_name: dict = {}
-    cc_of: dict = {}
-    for rel, short, cc, start, end in raw:
+    agg: dict = {}                      # fid -> complexity metrics, merged by max over overloads
+    for rel, short, start, end, md in raw:
         fid = (rel, short)
-        cc_of[fid] = max(cc_of.get(fid, 0), cc)
+        cur = agg.get(fid)
+        if cur is None:
+            agg[fid] = dict(md)
+        else:
+            for k, v in md.items():
+                if v > cur.get(k, 0):
+                    cur[k] = v
         body = "\n".join(lines_cache.get(rel, [])[max(start - 1, 0):end])
         body = _STRIP.sub(lambda m: " " * len(m.group(0)), body)
         og = 0
@@ -154,16 +178,18 @@ def analyze_tree(root: str, include_tests: bool = False) -> dict:
             in_by_name[callee] = in_by_name.get(callee, 0) + nargs
         out_gen[fid] = out_gen.get(fid, 0) + og
 
-    wmc: dict = {}
-    for rel, short, cc, _s, _e in raw:
-        wmc[rel] = wmc.get(rel, 0) + cc
+    wmc: dict = {}                      # per-file WMC (sum of method cyclomatic complexity)
+    for rel, short, start, end, md in raw:
+        wmc[rel] = wmc.get(rel, 0) + md["cc"]
 
     funcs: dict = {}
-    for fid in set(out_gen) | set(cc_of):
+    for fid in set(out_gen) | set(agg):
         og = out_gen.get(fid, 0)
         ig = in_by_name.get(fid[1], 0)
-        funcs[fid] = {"file": fid[0], "name": fid[1], "cc": cc_of.get(fid, 0),
-                      "out_gen": og, "in_gen": ig, "gain": max(og - ig, 0)}
+        md = agg.get(fid, {})
+        funcs[fid] = {"file": fid[0], "name": fid[1],
+                      "out_gen": og, "in_gen": ig, "gain": max(og - ig, 0),
+                      **{k: md.get(k, 0) for k in COMPLEXITY_FIELDS}}
     return {"funcs": funcs, "wmc": wmc}
 
 

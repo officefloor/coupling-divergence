@@ -139,7 +139,7 @@ def _needs_more(logs: list[float], target: int, cap: int, hw: float) -> bool:
 def grow(langs: list[str], tiers: list[str], target: int, cap: int, hw: float, seed: int,
          pool: int, min_funcs: int, min_univ: int, pmd: str | None, out_path: str,
          manifest_path: str, repos_path: str, keep: bool, pause: float, max_clones: int,
-         exclude: set | None = None) -> list[dict]:
+         exclude: set | None = None, ck: str | None = None) -> list[dict]:
     exclude = {o.lower() for o in (exclude if exclude is not None else EXCLUDE_OWNERS)}
     t0 = time.time()
 
@@ -217,7 +217,8 @@ def grow(langs: list[str], tiers: list[str], target: int, cap: int, hw: float, s
             print(f"[{el()}]        measuring {name} ({lang}, {n_src} source files) ...",
                   flush=True)
             try:
-                a = study.analyse(dest, pmd if lang == "java" else None)
+                a = study.analyse(dest, pmd if lang == "java" else None,
+                                  ck if lang == "java" else None)
             except Exception as e:
                 a = {"error": f"{type(e).__name__}: {e}"}
             row = {"repo": url, "name": name, "lang": lang, "commit": sha, "date": date,
@@ -391,6 +392,8 @@ def main(argv: list[str] | None = None) -> int:
                          f"observation (study default {STUDY['min_univ']})")
     ap.add_argument("--pmd", default=None, help="PMD binary for the Java GodClass reference; "
                     "if omitted, a `pmd` on PATH is used automatically")
+    ap.add_argument("--ck", default=None, help="CK jar (mauricioaniche/ck) for the Java "
+                    "LCOM/TCC/CBO cohesion-and-coupling god definitions (optional)")
     ap.add_argument("--anc", default=None, help="write the ancillary-data package here")
     ap.add_argument("--keep", action="store_true", help="do not delete clones")
     ap.add_argument("--max-clones", type=int, default=STUDY["max_clones"],
@@ -415,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
           f"{banner}\n", flush=True)
     rows = grow(langs, tiers, args.target, args.cap, args.hw, args.seed, args.pool,
                 args.min_funcs, args.min_univ, args.pmd, args.study_out, args.manifest,
-                args.out, args.keep, args.pause, args.max_clones)
+                args.out, args.keep, args.pause, args.max_clones, ck=args.ck)
     if args.anc:
         study.write_anc(rows, args.anc, frame_files=[args.out, args.manifest])
     return 0

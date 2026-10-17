@@ -89,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("-o", "--out", default="coupling-divergence_study.json")
     st.add_argument("--repos", default=None, help="file with one git URL per line")
     st.add_argument("--pmd", default=None, help="PMD binary, for the Java GodClass reference")
+    st.add_argument("--ck", default=None, help="CK jar (mauricioaniche/ck), for the Java "
+                    "LCOM/TCC/CBO cohesion-and-coupling god definitions")
     st.add_argument("--anc", default=None, help="write the ancillary-data package here "
                     "(results.csv + README.txt)")
     st.add_argument("--keep", action="store_true", help="do not delete clones")
@@ -122,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.repos:
             repos = study.read_repo_list(args.repos)
         manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
-        study.run(repos, args.out, args.pmd, args.keep, manifest)
+        study.run(repos, args.out, args.pmd, args.keep, manifest, args.ck)
         if args.anc:
             import json as _json
             rows = list({r["repo"]: r for r in _json.load(open(args.out))}.values())

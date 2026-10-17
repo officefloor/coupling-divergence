@@ -22,6 +22,7 @@ import csv as _csv
 import json
 import math as _math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,7 @@ import tempfile
 from collections import Counter, defaultdict
 
 from . import extract
+from . import metrics
 
 CC_GOD = 14
 
@@ -111,16 +113,91 @@ def _lang(root: str) -> str:
     return max(sorted(by_lang), key=by_lang.get)
 
 
-def _pmd_gods(pmd: str, srcdir: str) -> set | None:
-    out = subprocess.run([pmd, "check", "-d", srcdir, "-R",
-                          "category/java/design.xml/GodClass", "--format", "json",
-                          "--no-cache", "--no-progress"], capture_output=True, text=True)
+def _pmd_violations(pmd: str, srcdir: str) -> dict | None:
+    """rule name -> set of basenames that violate it, over PMD's whole Java design category.
+    One PMD pass yields the full oracle panel (GodClass, CouplingBetweenObjects ~ CK's CBO,
+    TooManyMethods, ExcessiveClassLength/NcssCount, TooManyFields, ...). Returns None if PMD
+    could not be parsed."""
+    out = subprocess.run([pmd, "check", "-d", srcdir, "-R", "category/java/design.xml",
+                          "--format", "json", "--no-cache", "--no-progress"],
+                         capture_output=True, text=True)
     try:
         d = json.loads(out.stdout)
     except Exception:
         return None
-    return {os.path.basename(f["filename"]) for f in d.get("files", [])
-            if any(v.get("rule") == "GodClass" for v in f.get("violations", []))}
+    byrule: dict = {}
+    for f in d.get("files", []):
+        b = os.path.basename(f["filename"])
+        for v in f.get("violations", []):
+            byrule.setdefault(v.get("rule"), set()).add(b)
+    return byrule
+
+
+# class-level PMD rules used as god-class oracles in the comparison matrix (class-scoped
+# "largeness/coupling/cohesion" rules; method-level and stylistic design rules are ignored).
+_PMD_ORACLE_RULES = ("GodClass", "CouplingBetweenObjects", "TooManyMethods",
+                     "ExcessiveClassLength", "NcssCount", "TooManyFields",
+                     "ExcessivePublicCount", "ExcessiveImports")
+
+
+def _pmd_gods(pmd: str, srcdir: str) -> set | None:
+    """Backward-compatible GodClass set (the paper's PMD reference)."""
+    byrule = _pmd_violations(pmd, srcdir)
+    return None if byrule is None else byrule.get("GodClass", set())
+
+
+def _ck_gods(ck_jar: str, srcdir: str) -> dict | None:
+    """Run CK (mauricioaniche/ck) and derive cohesion/coupling god-class DEFINITIONS, keyed by
+    file basename (a file is a god if ANY class in it meets the threshold). These are non-size
+    definitions, independent of WMC, which PMD alone does not give directly:
+      ck_LCOM    : Henderson-Sellers LCOM* >= 0.8           (low cohesion)
+      ck_TCClow  : Tight Class Cohesion < 1/3, >=2 methods  (Lanza-Marinescu cohesion component)
+      ck_CBOhigh : Coupling Between Objects >= 14           (high coupling)
+      decor_blob : an approximation of DECOR's Blob (Moha et al.): LargeClass (NMD+NAD >= 20)
+                   AND (LowCohesion lcom* >= 0.8 OR a controller class name). The ASSOC-to-
+                   data-classes clause is omitted (needs cross-class analysis), so this is a
+                   faithful-but-partial Blob, not the certified Ptidej detector.
+    Returns None if CK did not produce a class table."""
+    import csv as _csvmod
+    _CONTROLLER = re.compile(r"(process|control|manage|system|command|handler|manager|"
+                             r"driver|exec|service|coordinator|dispatcher)", re.I)
+    outdir = tempfile.mkdtemp(prefix="cdiv-ck-")
+    try:
+        subprocess.run(["java", "-jar", ck_jar, srcdir, "false", "0", "false", outdir + os.sep],
+                       capture_output=True, text=True, timeout=1800)
+        path = os.path.join(outdir, "class.csv")
+        if not os.path.isfile(path):
+            return None
+        defs = {"ck_LCOM": set(), "ck_TCClow": set(), "ck_CBOhigh": set(), "decor_blob": set()}
+
+        def num(row, key):
+            try:
+                return float(row.get(key, ""))
+            except (TypeError, ValueError):
+                return None
+        with open(path, newline="") as fh:
+            for row in _csvmod.DictReader(fh):
+                b = os.path.basename(row.get("file", ""))
+                if not b:
+                    continue
+                lcomn, tcc, cbo = num(row, "lcom*"), num(row, "tcc"), num(row, "cbo")
+                nm = num(row, "totalMethodsQty") or 0
+                nf = num(row, "totalFieldsQty") or 0
+                name = (row.get("class") or "").split(".")[-1]
+                low_coh = lcomn is not None and lcomn >= 0.8
+                if low_coh:
+                    defs["ck_LCOM"].add(b)
+                if tcc is not None and 0 <= tcc < 1 / 3 and nm >= 2:
+                    defs["ck_TCClow"].add(b)
+                if cbo is not None and cbo >= 14:
+                    defs["ck_CBOhigh"].add(b)
+                if (nm + nf) >= 20 and (low_coh or _CONTROLLER.search(name)):
+                    defs["decor_blob"].add(b)
+        return defs
+    except Exception:
+        return None
+    finally:
+        shutil.rmtree(outdir, ignore_errors=True)
 
 
 def _enrich(outset: set, godset: set, universe: set) -> dict:
@@ -198,7 +275,104 @@ def classify_kind(root: str, funcs: dict) -> str:
     return "library"
 
 
-def analyse(root: str, pmd: str | None) -> dict:
+def _cell(outset: set, god: set, universe: set) -> dict:
+    """Lean confusion counts for one (spike, definition) pair; MCC/F1/lift are derived
+    downstream from these four, keeping the per-repo matrix small."""
+    return {"n_univ": len(universe), "n_out": len(outset),
+            "n_overlap": len(outset & god), "n_god_univ": len(universe & god)}
+
+
+def _matrix_block(funcs, wmc, cg, method_oracles, c_god, class_bn_oracles, pmd_godclass) -> dict:
+    """The full detection matrix. For every (level, signal, algorithm) cell: the confusion
+    counts against every applicable god DEFINITION (method_oracles are fid-keyed; the Java
+    class definitions in class_bn_oracles are basename-keyed PMD/CK/DECOR sets). Also, for
+    every (level, signal, definition): the THRESHOLD-FREE AUC/AP of the raw signal, which
+    separates signal quality from the outlier algorithm's threshold. Plus per-algorithm
+    divergence-vs-signal alignment. A COMMON per-level universe (funcs cc>0 / files wmc>0) is
+    used for a fair head-to-head, unlike the paper's generator-restricted headline."""
+    mx = metrics.matrix_outliers(funcs, wmc, cg)
+    class_bn_oracles = class_bn_oracles or {}
+
+    def sigs(level_dict):
+        return [k for k in level_dict if k not in ("universe", "_vals")]
+
+    def cells(level_dict, universe, file_oracles, bn_oracles):
+        bn_univ = {os.path.basename(f) for f in universe} if bn_oracles else None
+        res = {}
+        for signal in sigs(level_dict):
+            res[signal] = {}
+            for algo, outset in level_dict[signal].items():
+                o = {name: _cell(outset, god, universe) for name, god in file_oracles.items()}
+                if bn_oracles:
+                    ob = {os.path.basename(f) for f in outset}
+                    for name, god in bn_oracles.items():
+                        o[name] = _cell(ob, god, bn_univ)
+                res[signal][algo] = o
+        return res
+
+    def auc(level_dict, universe, file_oracles, bn_oracles):
+        vals = level_dict["_vals"]
+        bn_univ = {os.path.basename(f) for f in universe} if bn_oracles else None
+        res = {}
+        for signal in sigs(level_dict):
+            res[signal] = {}
+            for name, god in file_oracles.items():
+                a, p, ng, _ = metrics.auc_ap(vals[signal], god, universe)
+                res[signal][name] = {"auc": round(a, 4) if a is not None else None,
+                                     "ap": round(p, 4) if p is not None else None, "n_god": ng}
+            if bn_oracles:
+                bval = {}
+                for f, v in vals[signal].items():
+                    b = os.path.basename(f)
+                    bval[b] = max(bval.get(b, 0), v)
+                for name, god in bn_oracles.items():
+                    a, p, ng, _ = metrics.auc_ap(bval, god, bn_univ)
+                    res[signal][name] = {"auc": round(a, 4) if a is not None else None,
+                                         "ap": round(p, 4) if p is not None else None, "n_god": ng}
+        return res
+
+    def align(level_dict, pmd_godclass):
+        res = {}
+        div = level_dict["divergence"]
+        for signal in sigs(level_dict):
+            if signal == "divergence":
+                continue
+            res[signal] = {}
+            for algo in metrics.ALGORITHMS:
+                d, c = div[algo], level_dict[signal][algo]
+                a = {"jaccard": metrics.jaccard(d, c), "both": len(d & c),
+                     "div_only": len(d - c), "sig_only": len(c - d)}
+                if pmd_godclass is not None:
+                    db = {os.path.basename(f) for f in d}
+                    cb = {os.path.basename(f) for f in c}
+                    a["div_only_pmd_gods"] = len((db - cb) & pmd_godclass)
+                    a["sig_only_pmd_gods"] = len((cb - db) & pmd_godclass)
+                res[signal][algo] = a
+        return res
+
+    m, c = mx["method"], mx["class"]
+    return {
+        "universe_note": "common per-level universe (funcs cc>0 / files wmc>0), "
+                         "unlike the paper's generator-restricted universe",
+        "signals_method": sigs(m), "signals_class": sigs(c),
+        "method": {
+            "n_univ": len(m["universe"]),
+            "oracle_gods": {name: len(s) for name, s in method_oracles.items()},
+            "cells": cells(m, m["universe"], method_oracles, None),
+            "auc": auc(m, m["universe"], method_oracles, None),
+            "alignment": align(m, None),
+        },
+        "class": {
+            "n_univ": len(c["universe"]), "wmc47_gods": len(c_god),
+            "oracle_gods": {name: len(s) for name, s in class_bn_oracles.items()},
+            "cells": cells(c, c["universe"], {"wmc47": c_god}, class_bn_oracles),
+            "auc": auc(c, c["universe"], {"wmc47": c_god}, class_bn_oracles),
+            "alignment": align(c, pmd_godclass),
+        },
+    }
+
+
+def analyse(root: str, pmd: str | None, ck: str | None = None) -> dict:
     res = extract.analyze_tree(root)
     funcs, wmc = res["funcs"], res["wmc"]
     if not funcs:
@@ -208,6 +382,16 @@ def analyse(root: str, pmd: str | None) -> dict:
     m_out = extract.outliers(funcs)
     m_god = {fid for fid, r in funcs.items() if r["cc"] >= CC_GOD}
     m_univ = {fid for fid, r in funcs.items() if r["gain"] > 0}
+    # method-level god DEFINITIONS (textbook thresholds), so the method comparison is not
+    # limited to a single oracle: McCabe CC, Campbell cognitive, deep nesting, long method,
+    # long parameter list.
+    method_oracles = {
+        "cc14": m_god,
+        "cognitive15": {fid for fid, r in funcs.items() if r.get("cognitive", 0) >= 15},
+        "nesting5": {fid for fid, r in funcs.items() if r.get("nesting", 0) >= 5},
+        "loc50": {fid for fid, r in funcs.items() if r.get("nloc", 0) >= 50},
+        "params5": {fid for fid, r in funcs.items() if r.get("params", 0) >= 5},
+    }
     # class level (cumulated generation vs WMC-47)
     cg = extract.class_gain(funcs)
     c_out = extract.class_outliers(cg)
@@ -221,18 +405,73 @@ def analyse(root: str, pmd: str | None) -> dict:
     }
     # leaf exclusion: WMC-gods the generation signal does NOT flag
     out["wmc_gods_flagged_by_gen"] = len(c_out & c_god)
+
+    # --- exploratory enhancement metrics + complexity-spike comparison (all additive) ---
+    # Divergence enhancements (concentration, EVT, gain x cc) and a parallel complexity
+    # SPIKE signal: a relative modified-z outlier of cc / WMC, the threshold-free analogue
+    # of the fixed WMC>=47 / CC>=14 references. Reported so one can ask whether coupling
+    # divergence marks the same units as a complexity spike (a restatement of size) or
+    # different ones (a distinct marker of concentration). See coupling_divergence/metrics.py.
+    sig = metrics.signals(funcs, wmc, cg)
+    m_univ_cc = {fid for fid, r in funcs.items() if r["cc"] > 0}
+    c_univ_wmc = {f for f in wmc if wmc[f] > 0}
+    cx = sig["complexity"]
+    cx["spike_vs_cc14"] = _enrich(sig["cx_method_out"], m_god, m_univ_cc)
+    cx["spike_vs_wmc47"] = _enrich(sig["cx_class_out"], c_god, c_univ_wmc)
+    out["divergence"] = sig["divergence"]
+    out["complexity"] = cx
+    out["alignment"] = {
+        "class_jaccard": metrics.jaccard(sig["div_class_out"], sig["cx_class_out"]),
+        "method_jaccard": metrics.jaccard(sig["div_method_out"], sig["cx_method_out"]),
+        "class_both": len(sig["div_class_out"] & sig["cx_class_out"]),
+        "class_div_only": len(sig["div_class_out"] - sig["cx_class_out"]),
+        "class_cx_only": len(sig["cx_class_out"] - sig["div_class_out"]),
+        "method_both": len(sig["div_method_out"] & sig["cx_method_out"]),
+        "method_div_only": len(sig["div_method_out"] - sig["cx_method_out"]),
+        "method_cx_only": len(sig["cx_method_out"] - sig["div_method_out"]),
+        # of the flags unique to each signal, how many are WMC>=47 size-gods (near-circular
+        # for the complexity spike; the fair discriminant is the PMD one added below)
+        "class_div_only_wmc_gods": len((sig["div_class_out"] - sig["cx_class_out"]) & c_god),
+        "class_cx_only_wmc_gods": len((sig["cx_class_out"] - sig["div_class_out"]) & c_god),
+    }
+
+    src = os.path.join(root, "src", "main", "java")
+    src = src if os.path.isdir(src) else root
+    class_bn_oracles: dict = {}      # Java class-level god DEFINITIONS, keyed by basename
+    pmd_godclass = None
+    pmd_byrule = None
     if pmd:
-        src = os.path.join(root, "src", "main", "java")
-        pg = _pmd_gods(pmd, src if os.path.isdir(src) else root)
+        pmd_byrule = _pmd_violations(pmd, src)
+        pg = pmd_byrule.get("GodClass") if pmd_byrule is not None else None
+        if pmd_byrule is not None:
+            class_bn_oracles.update({"pmd_" + r: pmd_byrule.get(r, set())
+                                     for r in _PMD_ORACLE_RULES if r in pmd_byrule})
+            pmd_godclass = pg
         if pg is not None:
             cob = {os.path.basename(f) for f in c_out}
             godb = {os.path.basename(f): f for f in c_god}
             out["pmd_gods"] = len(pg)
             out["class_vs_pmd"] = _enrich(cob, pg, {os.path.basename(f) for f in c_univ})
+            # complexity spike vs PMD, and the fair discriminant: of the class flags unique
+            # to each signal, how many are PMD gods (PMD is the one oracle not purely size)
+            cxb = {os.path.basename(f) for f in sig["cx_class_out"]}
+            cx["spike_vs_pmd"] = _enrich(cxb, pg, {os.path.basename(f) for f in c_univ_wmc})
+            out["alignment"]["class_div_only_pmd_gods"] = len((cob - cxb) & pg)
+            out["alignment"]["class_cx_only_pmd_gods"] = len((cxb - cob) & pg)
             # WMC-only leaves (WMC-god but not PMD-god) flagged by gen
             leaves = {b for b in godb if b not in pg}
             out["wmc_only_leaves"] = len(leaves)
             out["wmc_only_leaves_flagged_by_gen"] = len(cob & leaves)
+
+    if ck:
+        ck_defs = _ck_gods(ck, src)
+        if ck_defs:
+            class_bn_oracles.update(ck_defs)
+            out["ck_def_gods"] = {name: len(s) for name, s in ck_defs.items()}
+
+    # full (level x signal x algorithm x oracle) comparison matrix
+    out["matrix"] = _matrix_block(funcs, wmc, cg, method_oracles, c_god,
+                                  class_bn_oracles, pmd_godclass)
     return out
 
 
@@ -265,7 +504,7 @@ def _load_selection(manifest_path: str | None) -> dict:
 
 
 def run(repos: list[str], out_path: str, pmd: str | None, keep: bool,
-        manifest_path: str | None = None) -> None:
+        manifest_path: str | None = None, ck: str | None = None) -> None:
     results = {}
     if os.path.exists(out_path):
         try:
@@ -298,7 +537,8 @@ def run(repos: list[str], out_path: str, pmd: str | None, keep: bool,
         date = _git(["show", "-s", "--format=%ci", "HEAD"], cwd=dest).stdout.strip()[:10]
         lang = _lang(dest)
         try:
-            a = analyse(dest, pmd if lang == "java" else None)
+            a = analyse(dest, pmd if lang == "java" else None,
+                        ck if lang == "java" else None)
         except Exception as e:
             a = {"error": f"{type(e).__name__}: {e}"}
         row = {"repo": url, "name": name, "lang": lang, "commit": sha, "date": date,
