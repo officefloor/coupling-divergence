@@ -9,11 +9,15 @@ Writes two files into OUTDIR (default: this script's directory):
 
 The script is deliberately self-contained (Python standard library only): it does NOT
 import the coupling_divergence package, so building the paper needs no parser or venv.
-It mirrors three things from that package, and only those:
-  * the "usable observation" rule from coupling_divergence/grow.py (_usable_loglift),
+It mirrors four things from that package, and only those:
+  * the "usable observation" rule and the 0.5-corrected log-lift from
+    coupling_divergence/study.py (usable, log_lift) -- decided before the outcome, so a repo
+    whose outliers hit no god is kept as a negative observation, never dropped,
   * the one-sided Fisher exact p-value from coupling_divergence/study.py (fisher_greater),
   * the substance-floor thresholds, which it reads from the run's own sampling manifest
-    (falling back to the published defaults) so there is a single source of truth.
+    (falling back to the published defaults) so there is a single source of truth,
+  * the size baselines (study.BASELINE_PAIRS), reported as a paired divergence/baseline
+    lift ratio, since a lift alone cannot separate divergence from size.
 
 Reporting choices, stated so they are auditable:
   * Lift is reported as the GEOMETRIC mean (exp of the mean log-lift). Lift is a ratio, so
@@ -87,42 +91,54 @@ def fisher_from(block: dict):
     return fisher_greater(a, r1 - a, g - a, n - r1 - g + a)
 
 
+def _counts(block: dict):
+    """Mirrors study._counts."""
+    if not block or not block.get("n_univ"):
+        return None
+    a, n, r1 = block["n_overlap"], block["n_univ"], block["n_out"]
+    g = block.get("n_god_univ")
+    if g is None:
+        g = max(a, min(block["n_god"], n - r1 + a))
+    return a, r1, g, n
+
+
+def log_lift(block: dict):
+    """Mirrors study.log_lift: Haldane-Anscombe 0.5-corrected log-lift."""
+    c = _counts(block)
+    if c is None:
+        return None
+    a, r1, g, n = c
+    if r1 == 0 or g == 0:
+        return None
+    return math.log(((a + 0.5) / (r1 + 1)) / ((g + 0.5) / (n + 1)))
+
+
+def usable(row: dict, block: dict, min_funcs: int, min_univ: int) -> bool:
+    """Mirrors study.usable: substance floor, >= 1 god and >= 1 outlier; never the outcome."""
+    if row.get("error") or row.get("excluded_min_substance"):
+        return False
+    if (row.get("n_funcs") or 0) < min_funcs:
+        return False
+    c = _counts(block or {})
+    return bool(c) and c[3] >= min_univ and c[2] >= 1 and c[1] >= 1
+
+
+def loglift_of(row: dict, key: str, min_funcs: int, min_univ: int):
+    """log-lift of a usable observation of row[key] (a `baseline_` key reads row.baseline)."""
+    b = (row.get("baseline") or {}).get(key[9:]) if key.startswith("baseline_") else row.get(key)
+    return log_lift(b) if usable(row, b, min_funcs, min_univ) else None
+
+
 def usable_loglift(row: dict, min_funcs: int, min_univ: int):
-    """log(class lift) if the row is a usable class-level observation, else None.
-    Mirrors grow._usable_loglift (the substance floor) so the analysis set matches the run."""
-    if row.get("error") or row.get("excluded_min_substance"):
-        return None
-    if (row.get("n_funcs") or 0) < min_funcs:
-        return None
-    b = row.get("class_vs_wmc47") or {}
-    lift = b.get("lift")
-    if not lift or lift <= 0 or (b.get("n_univ") or 0) < min_univ:
-        return None
-    return math.log(lift)
+    """The class-level observation the headline and the per-language table use."""
+    return loglift_of(row, "class_vs_wmc47", min_funcs, min_univ)
 
 
-def _method_loglift(row: dict, min_funcs: int):
-    """log(method lift) for a usable method-level observation, else None. The substance
-    floor on functions applies; the method universe is the function set, not files."""
-    if row.get("error") or row.get("excluded_min_substance"):
-        return None
-    if (row.get("n_funcs") or 0) < min_funcs:
-        return None
-    b = row.get("method_vs_cc14") or {}
-    lift = b.get("lift")
-    if not lift or lift <= 0:
-        return None
-    return math.log(lift)
-
-
-def _pmd_loglift(row: dict, min_funcs: int):
-    if usable_loglift(row, min_funcs, 0) is None:   # must be a usable repo
-        return None
-    b = row.get("class_vs_pmd") or {}
-    lift = b.get("lift")
-    if not lift or lift <= 0:
-        return None
-    return math.log(lift)
+BASELINE_PAIRS = {   # mirrors study.BASELINE_PAIRS
+    "class_vs_wmc47": ("baseline_class_nom_vs_wmc47", "baseline_class_nloc_vs_wmc47"),
+    "method_vs_cc14": ("baseline_method_nloc_vs_cc14",),
+    "class_vs_pmd": ("baseline_class_nom_vs_pmd", "baseline_class_nloc_vs_pmd"),
+}
 
 
 def agg(logs: list[float], hw: float) -> dict:
@@ -172,6 +188,8 @@ def build(study_path: str, manifest_path: str | None):
                 if r.get("excluded_min_substance")
                 or (r.get("n_funcs") or 0) < min_funcs
                 or ((r.get("class_vs_wmc47") or {}).get("n_univ") or 0) < min_univ]
+    # cleared the floor but nothing to score (no reference god or no outlier in universe)
+    no_target = [r for r in measured if r not in excluded and usable_loglift(r, min_funcs, min_univ) is None]
 
     # usable class-level observations, keyed by language
     class_by_lang: dict[str, list[float]] = {}
@@ -189,7 +207,7 @@ def build(study_path: str, manifest_path: str | None):
 
     method_all, method_sig = [], 0
     for r in measured:
-        ll = _method_loglift(r, min_funcs)
+        ll = loglift_of(r, "method_vs_cc14", min_funcs, min_univ)
         if ll is None:
             continue
         method_all.append(ll)
@@ -197,8 +215,19 @@ def build(study_path: str, manifest_path: str | None):
         if p is not None and p < 0.05:
             method_sig += 1
 
-    pmd_all = [ll for ll in (_pmd_loglift(r, min_funcs) for r in measured if r.get("lang") == "java")
-               if ll is not None]
+    pmd_all = [ll for ll in (loglift_of(r, "class_vs_pmd", min_funcs, min_univ)
+                             for r in measured if r.get("lang") == "java") if ll is not None]
+
+    # paired divergence/baseline lift ratios: does divergence beat size on the same repos?
+    ratios = {}
+    for key, bases in BASELINE_PAIRS.items():
+        for bk in bases:
+            d = []
+            for r in measured:
+                a, b = loglift_of(r, key, min_funcs, min_univ), loglift_of(r, bk, min_funcs, min_univ)
+                if a is not None and b is not None:
+                    d.append(a - b)
+            ratios[bk[9:]] = agg(d, hw)
 
     cls, mth, pmd = agg(class_all, hw), agg(method_all, hw), agg(pmd_all, hw)
 
@@ -216,12 +245,19 @@ def build(study_path: str, manifest_path: str | None):
     leaf_flag = sum((r.get("wmc_only_leaves_flagged_by_gen") or 0)
                     for r in measured if r.get("lang") == "java")
     leaf_pct = round(100 * leaf_flag / leaf_total) if leaf_total else 0
+    # ... and the other side of the discriminant: the share of WMC-gods that ARE PMD gods
+    # which gen flags. Divergence discriminates only if this share exceeds leaf_pct.
+    pg_total = sum((r.get("wmc_pmd_gods") or 0) for r in measured if r.get("lang") == "java")
+    pg_flag = sum((r.get("wmc_pmd_gods_flagged_by_gen") or 0)
+                  for r in measured if r.get("lang") == "java")
+    pg_pct = round(100 * pg_flag / pg_total) if pg_total else 0
 
     langs_present = [L for L in LANGS if len(class_by_lang.get(L, [])) >= 2]
 
     m = []  # (macro, value) pairs for stats.tex
     m += [("nSampled", len(rows)), ("nMeasured", len(measured)), ("nErrored", len(errored)),
-          ("nExcluded", len(excluded)), ("nAnalyzed", len(class_all)),
+          ("nExcluded", len(excluded)), ("nNoTarget", len(no_target)),
+          ("nAnalyzed", len(class_all)),
           ("nLangs", len(langs_present)), ("nTiers", 3),
           ("nFuncs", _thousands(sum(r.get("n_funcs") or 0 for r in measured))),
           ("nFiles", _thousands(sum(r.get("n_files") or 0 for r in measured))),
@@ -236,12 +272,23 @@ def build(study_path: str, manifest_path: str | None):
     m += [("tierHigh", _f2(tier["high"].get("lift"))), ("tierMid", _f2(tier["mid"].get("lift"))),
           ("tierLow", _f2(tier["low"].get("lift"))), ("kindApp", _f2(app.get("lift"))),
           ("kindLib", _f2(lib.get("lift"))), ("nApp", app.get("n", 0)), ("nLib", lib.get("n", 0))]
-    m += [("leafTotal", leaf_total), ("leafFlagPct", leaf_pct)]
+    m += [("leafTotal", leaf_total), ("leafFlagPct", leaf_pct),
+          ("pmdGodWmcTotal", pg_total), ("pmdGodWmcFlagPct", pg_pct)]
+    macro = {"class_nom_vs_wmc47": "ClassNom", "class_nloc_vs_wmc47": "ClassNloc",
+             "method_nloc_vs_cc14": "MethodNloc", "class_nom_vs_pmd": "PmdNom",
+             "class_nloc_vs_pmd": "PmdNloc"}
+    for k, a in ratios.items():
+        if a.get("n", 0) >= 2:
+            nm = "vsBase" + macro[k]
+            m += [(nm + "N", a["n"]), (nm + "Ratio", _f2(a["lift"])),
+                  (nm + "Lo", _f2(a["lo"])), (nm + "Hi", _f2(a["hi"]))]
 
     stats = ["% Generated by make_stats.py from " + os.path.basename(study_path) + " -- DO NOT EDIT BY HAND.",
              "% Regenerate with:  python make_stats.py <study.json>",
              f"% Substance floor: >= {min_funcs} functions and a >= {min_univ}-file class universe.",
-             "% Lift is the geometric mean; intervals are Student-t (df = n-1).",
+             "% Lift is the geometric mean of the 0.5-corrected per-repo lift; intervals are",
+             "% Student-t (df = n-1). Repos whose outliers hit no god are KEPT. vsBase*Ratio is",
+             "% the paired divergence/size-baseline lift ratio (> 1 = divergence beats size).",
              ""]
     stats += [f"\\newcommand{{\\{name}}}{{{val}}}" for name, val in m]
 
@@ -257,7 +304,7 @@ def build(study_path: str, manifest_path: str | None):
     return "\n".join(stats) + "\n", "\n".join(body) + "\n", {
         "min_funcs": min_funcs, "min_univ": min_univ, "hw": hw,
         "measured": len(measured), "analyzed": len(class_all), "excluded": len(excluded),
-        "class": cls, "method": mth, "pmd": pmd, "langs": langs_present,
+        "class": cls, "method": mth, "pmd": pmd, "langs": langs_present, "ratios": ratios,
         "class_by_lang": {L: agg(class_by_lang[L], hw) for L in langs_present}}
 
 
@@ -285,6 +332,10 @@ def main(argv=None):
           f" excludes1={c['excl']} over {summ['langs'].__len__()} languages")
     fails = [L for L, a in summ["class_by_lang"].items() if not a.get("excl", False)]
     print(f"  per-language 'excludes 1' failures: {fails or 'NONE'}")
+    for k, a in summ["ratios"].items():
+        if a.get("n", 0) >= 2:
+            print(f"  divergence / {k} baseline lift ratio {a['lift']:.2f} "
+                  f"95%t[{a['lo']:.2f},{a['hi']:.2f}] over {a['n']} paired repos")
     return 0
 
 

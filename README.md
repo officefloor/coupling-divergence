@@ -84,11 +84,13 @@ Alpha. The extractor and the lead-lag evaluation are in place and self-tested
 
 **Detection.** Validated against the authoritative God Class detector (PMD's `GodClass`,
 the full Lanza-Marinescu strategy) on non-DI libraries: class-cumulated generation is 2.9x
-(jsoup) to 3.8x (commons-lang) enriched in God Classes, and it excludes roughly three
-quarters of the complex-leaf algorithms that `WMC >= 47` alone wrongly flags, the same
-"coupled, not merely complex" distinction the textbook needs its ATFD and TCC terms to
-make. It catches the out-flow (orchestrator) gods, not the in-flow (foreign-data-access)
-gods, so it is complementary to the ATFD axis, not a replacement.
+(jsoup) to 3.8x (commons-lang) enriched in God Classes. Whether it separates "coupled" from
+"merely complex" is **not established**: on the pilot's Java repos it flagged 52% of the
+WMC-only leaves (WMC >= 47, not a PMD God Class) and 49% of the WMC-sized PMD God Classes,
+i.e. no discrimination. The study now reports both shares (`wmc_only_leaves_flagged_by_gen`
+vs `wmc_pmd_gods_flagged_by_gen`) and compares every headline lift with a size baseline
+(a methods-per-file and a lines spike on the same universe), so the question is answered by
+the clean run rather than asserted. Pilot numbers predate the extractor fixes below.
 
 **Detection is a placement question, so it needs no history.** A god is a spike in the
 distribution of generation across units, and a spike is visible the instant the unit
@@ -123,23 +125,36 @@ pip install -e .
 coupling-divergence grow --anc anc/coupling-divergence-study     # that's it
 ```
 
-`grow` reproduces the published run exactly. Every study parameter is a built-in default
-(`coupling_divergence/grow.py`, the `STUDY` dict), so running it bare is the canonical
-reproduction: seed `1`, a target of **30 usable repositories per language** (up to **40**
+`grow` reproduces the published **method**. GitHub search results move, so a fresh `grow`
+draws a similar but not identical population; to re-measure the exact published population,
+run `coupling-divergence study --repos repos.txt`, which clones every repository at the
+commit pinned in that file (`URL COMMIT` per line, written by `grow`). Every study parameter
+is a built-in default (`coupling_divergence/grow.py`, the `STUDY` dict), so running it bare
+is the canonical method: seed `1`, a target of **30 usable repositories per language** (up to **40**
 for the noisy ones, until each language's 95% interval half-width on log-lift is ≤ `0.2`),
 a substance floor of **≥ 50 functions and a ≥ 15-file class universe** so near-empty repos
-cannot enter the analysis, across **11 languages × 3 popularity tiers**. It prints
-`=> CANONICAL STUDY CONFIGURATION` when no default has been overridden, so a replicator can
-see at a glance they are running the same thing. A `pmd` on `PATH` is picked up
-automatically for the Java GodClass reference; without it the Java rows simply omit that
-comparison.
+cannot enter the analysis, across **11 languages × 3 popularity tiers**, each tier drawn
+across five star sub-bands in proportion to their population (GitHub returns only the top
+1000 of a search, so drawing a tier whole would sample only its most-starred end). A repo is
+*usable* when it clears the floor and has at least one reference god and one outlier to
+score; whether the outliers hit a god is never part of the rule, so a failing repo stays in
+as a negative observation (0.5-corrected lift) instead of being replaced by a fresh draw.
+
+The oracles are part of the configuration. A `pmd` (PMD 7) on `PATH` is picked up for the
+Java design panel, run on exactly the files the extractor measured; the CK jar
+(mauricioaniche/ck) for the cohesion/coupling panel comes from `--ck` or `CK_JAR`. `grow`
+prints `=> CANONICAL STUDY CONFIGURATION` only when no default is overridden **and** both
+oracles are present; without CK the pre-registered H1/H2 cannot be tested and it says so.
+Each row records the lizard/PMD/CK versions that produced it.
 
 Because a repository's language and whether it yields a usable measurement are only known
 *after* it is cloned and measured (a GitHub "C++" repo often measures as C, half the Ruby
 draws are tiny gems), `grow` couples sampling to measurement: it draws a seeded batch,
 measures it, and keeps topping up only the languages still short, round by round, until
 every language meets the target or its population is exhausted (recorded honestly in the
-manifest, never hidden). Each repo is shallow-cloned at its latest default-branch commit,
+manifest, never hidden). The stopping rule watches the observed spread of log-lift
+(sequential, optional stopping on variance), which is recorded in the manifest and should
+be disclosed. Each repo is shallow-cloned at its latest default-branch commit,
 measured, the commit sha recorded, and the clone deleted — nothing is kept on disk but the
 recorded commits, and the public repositories at those commits are the source of truth. The
 run prints per repo as it goes, is **resumable** (re-running skips repos already in the
@@ -191,9 +206,11 @@ reference `WMC >= 47`, the method generation outlier against the brain-method re
 `CC >= 14`, and (Java, with `--pmd`) PMD's full `GodClass`. For each it reports the
 enrichment (lift), recall, and a one-sided **Fisher exact p-value** for that repo.
 
-At the end it prints the pooled result: per language, and across all repos the mean lift
-with a 95% confidence interval, how many repos are individually significant, and the number
-of repos needed to reach a target CI half-width. That last number is a **stopping rule**:
+At the end it prints the pooled result: per language, and across all repos the geometric-
+mean lift with a Student-t 95% interval, how many repos are individually significant, the
+number of repos needed to reach a target CI half-width, and for each headline the paired
+divergence/size-baseline lift ratio (lift is bounded by 1/base-rate, so a lift on its own
+cannot show divergence is more than size). That last number is a **stopping rule**:
 because the run is resumable, grow `repos.txt` and re-run until the repos-needed estimate is
 at or below the repos measured, then the sample is large enough.
 

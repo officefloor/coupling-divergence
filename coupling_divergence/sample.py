@@ -40,7 +40,17 @@ LANGS = {
     "c#": "C#", "ruby": "Ruby", "php": "PHP", "rust": "Rust",
 }
 # Popularity tiers, a proxy for the spread from heavily-maintained to rougher code.
-TIERS = {"high": "stars:>5000", "mid": "stars:1000..5000", "low": "stars:200..1000"}
+# Disjoint: a repo with exactly 1000 stars belongs to one tier only.
+TIERS = {"high": "stars:>5000", "mid": "stars:1000..5000", "low": "stars:200..999"}
+# Star sub-bands within each tier. GitHub search returns at most 1000 results sorted by
+# stars, so fetching a tier whole samples only its top (a "low" draw would be all ~999-star
+# repos). Drawing from narrow sub-bands, weighted by each band's match count, spreads the
+# sample across the tier the way the population is spread.
+TIER_BANDS = {
+    "high": ["5001..7500", "7501..12000", "12001..20000", "20001..40000", ">40000"],
+    "mid": ["1000..1400", "1401..2000", "2001..2800", "2801..3800", "3801..5000"],
+    "low": ["200..290", "291..400", "401..560", "561..760", "761..999"],
+}
 # Owners excluded by default so the author's own ecosystem can never enter the sample. This
 # is the conflict-of-interest guard, encoded rather than trusted: it is applied both as a
 # GitHub `-user:` query qualifier AND as a post-fetch filter, and recorded in the manifest.

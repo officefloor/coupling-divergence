@@ -33,7 +33,7 @@ import tempfile
 import time
 
 from . import study, extract
-from .sample import LANGS, TIERS, EXCLUDE_OWNERS
+from .sample import LANGS, TIERS, TIER_BANDS, EXCLUDE_OWNERS
 
 BATCH_PER_TIER = 2          # repos drawn per tier, per short language, per round
 Z = 1.96
@@ -77,10 +77,12 @@ def _search_page(query: str, per_page: int, page: int) -> dict:
         return {"total_count": 0, "items": [], "error": str(e)}
 
 
-def _candidates(lang: str, tier: str, pool: int, exclude: set, pause: float) -> tuple[list, int, str | None]:
-    """Up to `pool` candidate repos for a stratum, stars descending, across pages. Returns
-    (candidates, total_matched, error). GitHub caps search at 1000 results / 100 per page."""
-    q = (f"language:{LANGS[lang]} {TIERS[tier]} archived:false fork:false"
+def _band_candidates(lang: str, band: str, pool: int, exclude: set,
+                     pause: float) -> tuple[list, int, str | None]:
+    """Up to `pool` candidate repos for one star sub-band, stars descending, across pages.
+    Returns (candidates, total_matched, error). GitHub caps search at 1000 results / 100
+    per page."""
+    q = (f"language:{LANGS[lang]} stars:{band} archived:false fork:false"
          + "".join(f" -user:{o}" for o in sorted(exclude)))
     items, total, err, page = [], 0, None, 1
     while len(items) < pool and page <= 10:
@@ -98,24 +100,40 @@ def _candidates(lang: str, tier: str, pool: int, exclude: set, pause: float) -> 
         page += 1
         time.sleep(pause)
     cands = [{"full_name": it["full_name"], "url": it["clone_url"],
-              "stars": it.get("stargazers_count"), "rank": r}
+              "stars": it.get("stargazers_count"), "rank": r, "band": band}
              for r, it in enumerate(items, 1)]
     return cands, total, err
 
 
+def _candidates(lang: str, tier: str, pool: int, exclude: set, pause: float,
+                rng: random.Random) -> tuple[list, dict, str | None]:
+    """The seeded draw order for one (language, tier) stratum. The tier is split into star
+    sub-bands (TIER_BANDS); each band's candidates are shuffled, and the order interleaves
+    bands at random in proportion to each band's GitHub match count, so the draw follows
+    the population across the tier instead of taking its most-starred top. Returns
+    (ordered candidates, {band: total_matched}, first error)."""
+    bands = TIER_BANDS[tier]
+    per_band = max(1, -(-pool // len(bands)))
+    lists, totals, err = {}, {}, None
+    for b in bands:
+        cands, total, e = _band_candidates(lang, b, per_band, exclude, pause)
+        rng.shuffle(cands)
+        lists[b], totals[b] = cands, total
+        err = err or e
+    order = []
+    while any(lists.values()):
+        live = [b for b in bands if lists[b]]
+        b = rng.choices(live, weights=[max(totals[b], 1) for b in live])[0]
+        order.append(lists[b].pop(0))
+    return order, totals, err
+
+
 def _usable_loglift(row: dict, min_funcs: int, min_univ: int) -> float | None:
-    """log(class lift) if the row is a usable observation, else None. A row is usable when it
-    parsed, cleared the substance floor, and produced a positive class-level lift on a
-    universe large enough for an outlier to mean something."""
-    if row.get("error") or row.get("excluded_min_substance"):
-        return None
-    if (row.get("n_funcs") or 0) < min_funcs:
-        return None
-    b = row.get("class_vs_wmc47") or {}
-    lift = b.get("lift")
-    if not lift or lift <= 0 or (b.get("n_univ") or 0) < min_univ:
-        return None
-    return math.log(lift)
+    """The study's single usability rule (study.usable_loglift): decided on the substance
+    floor and on there being a god and an outlier to score -- never on whether the outliers
+    hit a god. A repo whose signal fails stays in as a negative observation, so the grow
+    loop cannot replace failures with fresh draws until the target is met."""
+    return study.usable_loglift(row, "class_vs_wmc47", min_funcs, min_univ)
 
 
 def _halfwidth(logs: list[float]) -> float:
@@ -176,38 +194,34 @@ def grow(langs: list[str], tiers: list[str], target: int, cap: int, hw: float, s
         if key not in cand_cache:
             print(f"[{el()}]   fetching GitHub candidates for {lang}/{tier} ...",
                   flush=True)
-            cands, total, err = _candidates(lang, tier, pool, exclude, pause)
             rng = random.Random(f"{seed}:{lang}:{tier}")
-            rng.shuffle(cands)
+            cands, band_totals, err = _candidates(lang, tier, pool, exclude, pause, rng)
             cand_cache[key] = cands
             cursor[key] = 0
-            totals[key] = total
-            print(f"[{el()}]   {lang}/{tier}: {total} matched, {len(cands)} fetched"
+            totals[key] = band_totals
+            print(f"[{el()}]   {lang}/{tier}: {sum(band_totals.values())} matched over "
+                  f"{len(band_totals)} star bands, {len(cands)} fetched"
                   + (f"  SEARCH ERROR {err}" if err else ""), flush=True)
         return cand_cache[key]
 
     work = tempfile.mkdtemp(prefix="cdiv-grow-")
+    tools = study.tool_versions(pmd, ck)
     selection: dict = {}
     n_cloned = 0
 
-    def measure(url, lang_stratum, tier, stars, rank) -> dict:
+    def measure(url, lang_stratum, tier, stars, rank, band) -> dict:
         nonlocal n_cloned
         name = url.rstrip("/").split("/")[-1].removesuffix(".git")
-        selection[url] = {"stratum_lang": lang_stratum, "tier": tier, "stars": stars, "rank": rank}
+        selection[url] = {"stratum_lang": lang_stratum, "tier": tier, "stars": stars,
+                          "rank": rank, "star_band": band}
         dest = os.path.join(work, name)
         shutil.rmtree(dest, ignore_errors=True)
         n_cloned += 1
         tstart = time.time()
         print(f"[{el()}]   [{n_cloned}] {lang_stratum}/{tier} {name}: cloning "
               f"({stars} stars) ...", flush=True)
-        try:
-            cl = subprocess.run(["git", "clone", "--depth", "1", "--quiet", url, dest],
-                                capture_output=True, text=True, timeout=CLONE_TIMEOUT)
-            cloned = cl.returncode == 0
-            clone_err = "clone failed" if not cloned else None
-        except subprocess.TimeoutExpired:
-            cloned, clone_err = False, f"clone timeout ({CLONE_TIMEOUT}s)"
-        if not cloned:
+        clone_err = study.clone_at(url, dest, None, CLONE_TIMEOUT)
+        if clone_err:
             row = {"repo": url, "name": name, "error": clone_err, **selection[url]}
         else:
             sha = study._git(["rev-parse", "HEAD"], cwd=dest).stdout.strip()
@@ -222,7 +236,7 @@ def grow(langs: list[str], tiers: list[str], target: int, cap: int, hw: float, s
             except Exception as e:
                 a = {"error": f"{type(e).__name__}: {e}"}
             row = {"repo": url, "name": name, "lang": lang, "commit": sha, "date": date,
-                   **selection[url], **a}
+                   **selection[url], "tools": tools, **a}
             # substance floor: recorded for audit, but does not count toward any target
             if not a.get("error") and (a.get("n_funcs") or 0) < min_funcs:
                 row["excluded_min_substance"] = True
@@ -271,16 +285,18 @@ def grow(langs: list[str], tiers: list[str], target: int, cap: int, hw: float, s
             for tier in tiers:
                 cands = stratum_candidates(L, tier)
                 key = (L, tier)
-                while cursor[key] < len(cands) and took < BATCH_PER_TIER * len(tiers):
+                took_tier = 0                   # per tier, so every tier draws the same batch
+                while cursor[key] < len(cands) and took_tier < BATCH_PER_TIER:
                     it = cands[cursor[key]]
                     cursor[key] += 1
                     if it["url"] in results:
                         continue
-                    measure(it["url"], L, tier, it["stars"], it["rank"])
-                    took += 1
+                    measure(it["url"], L, tier, it["stars"], it["rank"], it.get("band"))
+                    took_tier += 1
                     drew_any = True
-                    if took >= BATCH_PER_TIER:
+                    if n_cloned >= max_clones:
                         break
+                took += took_tier
                 if n_cloned >= max_clones:
                     break
             # all strata for this language drained and still short -> mark exhausted
@@ -297,7 +313,7 @@ def grow(langs: list[str], tiers: list[str], target: int, cap: int, hw: float, s
 
     rows = list(results.values())
     _write_manifest(manifest_path, rows, selection, totals, exhausted, seed, target, cap, hw,
-                    min_funcs, min_univ, langs, tiers, sorted(exclude))
+                    min_funcs, min_univ, langs, tiers, sorted(exclude), tools)
     _write_repos(repos_path, rows)
     study.write_csv(rows, os.path.splitext(out_path)[0] + ".csv")
     study._summary(rows)
@@ -306,15 +322,15 @@ def grow(langs: list[str], tiers: list[str], target: int, cap: int, hw: float, s
 
 
 def _write_manifest(path, rows, selection, totals, exhausted, seed, target, cap, hw,
-                    min_funcs, min_univ, langs, tiers, exclude) -> None:
+                    min_funcs, min_univ, langs, tiers, exclude, tools=None) -> None:
     strata: dict = {}
     for r in rows:
         key = (r.get("stratum_lang"), r.get("tier"))
         if key[0] is None:
             continue
         strata.setdefault(key, []).append(
-            {"url": r["repo"], "full_name": r.get("name"),
-             "stars": r.get("stars"), "rank": r.get("rank")})
+            {"url": r["repo"], "full_name": r.get("name"), "commit": r.get("commit"),
+             "stars": r.get("stars"), "rank": r.get("rank"), "star_band": r.get("star_band")})
     manifest = {
         "generated_by": "coupling-divergence grow",
         "sampled_at_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
@@ -322,13 +338,23 @@ def _write_manifest(path, rows, selection, totals, exhausted, seed, target, cap,
         "target_per_lang": target, "cap_per_lang": cap, "halfwidth_target_loglift": hw,
         "min_funcs": min_funcs, "min_univ": min_univ,
         "langs": langs, "tiers": {t: TIERS[t] for t in tiers},
-        "excluded_owners": exclude,
+        "tier_star_bands": {t: TIER_BANDS[t] for t in tiers},
+        "excluded_owners": exclude, "tools": tools,
+        "usable_rule": ("parsed; >= min_funcs functions; >= min_univ class universe; >= 1 "
+                        "reference god and >= 1 outlier in it. Never conditioned on the "
+                        "outliers hitting a god (zero-overlap repos are kept)."),
+        "stopping_rule": ("sequential: a language is topped up until >= target usable and "
+                          "the observed 95% half-width on log-lift <= hw, or the cap. The "
+                          "rule watches the spread of the outcome (optional stopping on "
+                          "variance), which slightly affects interval coverage; disclose."),
         "exhausted_langs": sorted(k for k, v in exhausted.items() if v),
         "note": ("Frozen frame, grown adaptively until each language met the usable-repo "
                  "target and precision bar (or its population was exhausted). Re-running "
-                 "reproduces the METHOD; GitHub moves, so the exact list is pinned here."),
+                 "grow reproduces the METHOD only (GitHub moves); `study --repos repos.txt` "
+                 "re-measures this exact population, each repo at its pinned commit."),
         "strata": [{"lang": k[0], "tier": k[1], "stars_qualifier": TIERS.get(k[1]),
-                    "total_matched": totals.get(k), "selected": v}
+                    "total_matched": sum((totals.get(k) or {}).values()) or None,
+                    "band_matched": totals.get(k), "selected": v}
                    for k, v in sorted(strata.items())],
     }
     json.dump(manifest, open(path, "w"), indent=2)
@@ -343,10 +369,13 @@ def _write_repos(path, rows) -> None:
         fh.write("# Repositories sampled by `coupling-divergence grow` (adaptive, seeded).\n")
         fh.write("# The method is in coupling_divergence/grow.py; the frozen frame with every\n")
         fh.write("# query, match count and selection is in the manifest beside this file.\n")
+        fh.write("# Each line is `URL COMMIT`: `coupling-divergence study --repos <this file>`\n")
+        fh.write("# re-measures every repository at exactly that commit.\n")
         for lang in sorted(by_lang):
             fh.write(f"# --- {lang} ---\n")
             for r in sorted(by_lang[lang], key=lambda x: str(x.get("tier"))):
-                fh.write(f"{r['repo']}   # {r.get('tier')}, {r.get('stars')} stars\n")
+                fh.write(f"{r['repo']} {r.get('commit') or ''}   "
+                         f"# {r.get('tier')}, {r.get('stars')} stars\n")
     print(f"wrote repo list -> {path} ({len(rows)} repos)")
 
 
@@ -405,16 +434,27 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if not args.pmd:
         args.pmd = shutil.which("pmd")      # auto-detect so the Java reference needs no flag
+    if not args.ck and os.environ.get("CK_JAR") and os.path.isfile(os.environ["CK_JAR"]):
+        args.ck = os.environ["CK_JAR"]      # CK has no PATH convention; take it from CK_JAR
     langs = [x.strip() for x in args.langs.split(",") if x.strip() in LANGS]
     tiers = [x.strip() for x in args.tiers.split(",") if x.strip() in TIERS]
-    canonical = all(getattr(args, k.replace("-", "_")) == v for k, v in STUDY.items())
+    params_default = all(getattr(args, k.replace("-", "_")) == v for k, v in STUDY.items())
+    # The oracles are part of the study: without PMD there is no GodClass reference, and
+    # without CK the pre-registered H1/H2 (composite / coupling definitions) cannot be tested.
+    missing = [n for n, v in (("PMD", args.pmd), ("CK", args.ck)) if not v]
+    canonical = params_default and not missing
     pmd_label = args.pmd or "not found on PATH -- Java rows will omit the PMD comparison"
-    banner = ("=> CANONICAL STUDY CONFIGURATION (reproduces the published run)"
-              if canonical else "=> non-default parameters: this is a DIFFERENT study")
+    ck_label = args.ck or "not given (--ck or CK_JAR) -- no CK/DECOR definitions; H1/H2 untestable"
+    banner = ("=> CANONICAL STUDY CONFIGURATION (the published method; GitHub moves, so the "
+              "exact population is re-measured with `study --repos repos.txt`)" if canonical
+              else "=> non-default parameters: this is a DIFFERENT study" if not params_default
+              else f"=> default parameters but missing oracle(s) {', '.join(missing)}: "
+                   "NOT the canonical study")
     print(f"adaptive grow: target {args.target}/lang (cap {args.cap}, half-width {args.hw}) "
           f"over {len(langs)} languages x {len(tiers)} tiers  seed {args.seed}\n"
           f"substance floor: >= {args.min_funcs} functions, >= {args.min_univ} class universe\n"
           f"Java GodClass reference (PMD): {pmd_label}\n"
+          f"Java cohesion/coupling panel (CK): {ck_label}\n"
           f"{banner}\n", flush=True)
     rows = grow(langs, tiers, args.target, args.cap, args.hw, args.seed, args.pool,
                 args.min_funcs, args.min_univ, args.pmd, args.study_out, args.manifest,

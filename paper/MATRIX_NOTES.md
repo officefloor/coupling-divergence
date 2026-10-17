@@ -39,9 +39,23 @@ Signals are ranked by AUC; algorithms by MCC.
 
 ## Aggregation
 
-Per the standard for comparing many methods over many criteria (Demšar 2006): rank within
-each `(repo, definition)` instance, average the ranks, test with Friedman, and read the
-Nemenyi critical difference for significance — reported next to the plain mean.
+Per the standard for comparing many methods over many data sets (Demšar 2006): the Friedman
+block is the **repository**. Within a repo, a signal's AUC (or an algorithm's MCC) is first
+averaged over the definitions of the group it has, then signals are ranked per repo, the
+ranks averaged, and Friedman + the Nemenyi critical difference read next to the plain mean.
+Ranking every `(repo, definition)` pair as its own block would count one repo's correlated
+definitions as independent evidence (pseudo-replication) and shrink the p-values.
+
+## Explore / confirm split
+
+`compare_signals.py` splits the usable repositories (the same substance floor as the
+headline) into an EXPLORE and a CONFIRM half by a hash of the repository URL. Every
+data-driven choice is made on EXPLORE: which signals are dropped as degenerate, and which
+pure-complexity signal is the strongest rival for each hypothesis. H1 and H2 are then tested
+**once, on CONFIRM**, with a one-sided paired Wilcoxon signed-rank test on per-repo AUC
+differences (exact for small untied samples), against both the explore-chosen rival and,
+more strictly, each repo's best rival. H1/H2 need the PMD and CK panels; a run without them
+reports the hypotheses as not testable rather than silently skipping them.
 
 ## Pre-registered PRIMARY hypothesis (everything else is exploratory)
 

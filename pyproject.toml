@@ -26,7 +26,8 @@ classifiers = [
 # Standalone and language-independent: lizard supplies the multi-language function list,
 # cyclomatic complexity and line ranges; everything above it is lexical. No other runtime
 # dependency. (Same substrate as impact-gate.)
-dependencies = ["lizard>=1.17"]
+dependencies = ["lizard==1.24.1"]   # pinned: the function list and CC are lizard's; a
+                                      # version change can move every number
 
 [project.scripts]
 coupling-divergence = "coupling_divergence.cli:main"

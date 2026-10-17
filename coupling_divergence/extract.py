@@ -17,6 +17,12 @@ is the dominant, persistent outlier in gain (modified z-score, threshold-free), 
 that manufactures more coupling than it receives. Calls that leave the tree (library/SQL)
 are not counted, which is what excludes converters and mappers without any type analysis.
 
+Counting rules, so each call is counted exactly once: calls nested in arguments, conditions
+and inline lambdas/callbacks count; a function's own signature is not a call; a named nested
+function owns its own calls while an anonymous inline one belongs to its parent; strings and
+comments are blanked per language. Test files (by directory and by each language's
+colocated-test naming, plus Rust #[cfg(test)] modules) are excluded unless include_tests.
+
 WMC per FILE (sum of function cyclomatic complexity) is the textbook size reference
 (Lanza-Marinescu god-class threshold is WMC >= 47); a file is the language-neutral unit.
 """
@@ -49,10 +55,54 @@ NOT_CALL = {
     "func", "def", "function", "sub", "super", "this", "self",
 }
 # Lightweight comment/string strip so commas inside literals are not counted as arguments.
-_STRIP = re.compile(
-    r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`'
-    r'|//[^\n]*|#[^\n]*|/\*.*?\*/', re.S)
-_TEST_DIR = re.compile(r"(?:^|/)(?:test|tests|testing|spec|__tests__)(?:/|$)")
+# Per language, because a token that opens a comment in one language is code in another:
+# `//` is floor division in Python, `#` is a private field in JS and an attribute in Rust,
+# and `'a` is a Rust lifetime, not the start of a character literal.
+_DQ = r'"(?:\\.|[^"\\])*"'
+_SQ = r"'(?:\\.|[^'\\])*'"
+_CHAR = r"'(?:\\.|[^'\\])'|'\\[^'\n]{1,10}'"       # a single char literal only
+_BTICK = r'`(?:\\.|[^`\\])*`'
+_TRIPLE = r'"""(?:\\.|[^\\])*?"""|' + r"'''(?:\\.|[^\\])*?'''"
+_SLASH = r'//[^\n]*|/\*.*?\*/'
+_HASH = r'#[^\n]*'
+_PREPROC = r'(?m:^[ \t]*#[^\n]*)'
+_STRIP_PARTS = {
+    "py": (_TRIPLE, _DQ, _SQ, _HASH),
+    "rb": (_DQ, _SQ, _BTICK, _HASH),
+    "php": (_DQ, _SQ, _SLASH, _HASH),
+    "rs": (_DQ, _CHAR, _SLASH),
+    "swift": (_TRIPLE, _DQ, _SLASH),
+    "lua": (_DQ, _SQ, r'--[^\n]*'),
+    "c": (_DQ, _SQ, _SLASH, _PREPROC),
+    "js": (_DQ, _SQ, _BTICK, _SLASH),
+    "": (_TRIPLE, _DQ, _SQ, _SLASH),               # Java, Kotlin, Scala, Groovy, ...
+}
+_STRIP_EXT = {"pyw": "py", "pyi": "py", "jsx": "js", "ts": "js", "tsx": "js", "go": "js",
+              "h": "c", "hh": "c", "hpp": "c", "cc": "c", "cpp": "c", "cxx": "c", "m": "c",
+              "mm": "c", "cs": "c"}
+_STRIP_BY = {k: re.compile("|".join(v), re.S) for k, v in _STRIP_PARTS.items()}
+
+
+def _strip(text: str, ext: str) -> str:
+    """Blank strings and comments, keeping every newline so line positions are kept."""
+    ext = ext.lower()
+    rx = _STRIP_BY.get(_STRIP_EXT.get(ext, ext), _STRIP_BY[""])
+    return rx.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+_TEST_DIR = re.compile(r"(?:^|/)(?:test|tests|testing|spec|specs|__tests__|testdata"
+                       r"|[^/]+\.(?:tests?|unittests|integrationtests|specs))(?:/|$)", re.I)
+# Test files that live BESIDE the code they test, by each language's naming convention
+# (Go *_test.go, JS/TS *.test.* / *.spec.*, pytest test_*.py / *_test.py, RSpec *_spec.rb,
+# gtest *_test.cc / *_unittest.cc, Rust tests.rs). A directory filter alone misses them.
+_TEST_FILE = re.compile(
+    r"(?:_test\.go"
+    r"|[.-](?:test|spec)\.(?:js|jsx|ts|tsx)"
+    r"|(?:^|/)(?:test_[^/]*|[^/]*_test|conftest|tests)\.py"
+    r"|(?:^|/)(?:test_[^/]*|[^/]*_(?:test|spec))\.rb"
+    r"|_(?:unit)?test\.(?:c|cc|cpp|cxx)"
+    r"|(?:^|/)tests\.rs)$", re.I)
+# A Rust inline test module: `#[cfg(test)]` followed by `mod name {`.
+_RUST_CFG_TEST = re.compile(r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]\s*(?:pub(?:\([^)]*\))?\s+)?"
+                            r"mod\s+\w+\s*\{")
 # Directories that are not the project's own code: dependencies, build output, and
 # vendored or generated trees (where a single tree-sitter parser.c can be ~100 MB).
 _SKIP_DIRS = {".git", "node_modules", "build", "target", "dist", ".venv", "venv",
@@ -72,7 +122,8 @@ def source_files(root: str, include_tests: bool = False) -> list[str]:
             if os.path.splitext(fn)[1].lower() not in SOURCE_EXTS:
                 continue
             rel = os.path.relpath(os.path.join(dirpath, fn), root)
-            if not include_tests and _TEST_DIR.search("/" + rel.replace(os.sep, "/")):
+            relp = "/" + rel.replace(os.sep, "/")
+            if not include_tests and (_TEST_DIR.search(relp) or _TEST_FILE.search(relp)):
                 continue
             try:
                 if os.path.getsize(os.path.join(dirpath, fn)) > MAX_FILE_BYTES:
@@ -83,37 +134,100 @@ def source_files(root: str, include_tests: bool = False) -> list[str]:
     return out
 
 
-def _call_sites(body: str):
-    """Yield (callee name, argument count) for every call expression in `body`."""
-    i, n = 0, len(body)
-    while i < n:
-        if body[i] == "(":
-            j = i - 1
-            while j >= 0 and body[j].isspace():
-                j -= 1
-            if j >= 0 and (body[j].isalnum() or body[j] in "_$"):
-                k = j
-                while k >= 0 and (body[k].isalnum() or body[k] in "_$"):
-                    k -= 1
-                word = body[k + 1:j + 1]
-                depth, p, args, content = 0, i, 0, False
-                while p < n:
-                    c = body[p]
-                    if c == "(":
-                        depth += 1
-                    elif c == ")":
-                        depth -= 1
-                        if depth == 0:
-                            break
-                    elif c == "," and depth == 1:
-                        args += 1
-                    elif depth == 1 and not c.isspace():
-                        content = True
-                    p += 1
-                yield word, (args + 1 if content else 0)
-                i = p + 1
-                continue
-        i += 1
+def _rust_test_lines(src: str) -> list[tuple[int, int]]:
+    """1-based inclusive line ranges of the `#[cfg(test)] mod name { ... }` blocks in a Rust
+    source, so the inline unit tests Rust keeps beside the code are excluded like test files."""
+    text = _strip(src, "rs")
+    out = []
+    for m in _RUST_CFG_TEST.finditer(src):
+        if text[m.end() - 1] != "{":         # the match began inside a string or comment
+            continue
+        depth, p = 0, m.end() - 1
+        while p < len(text):
+            if text[p] == "{":
+                depth += 1
+            elif text[p] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            p += 1
+        out.append((src.count("\n", 0, m.start()) + 1, src.count("\n", 0, p) + 1))
+    return out
+
+
+def _call_sites(body: str, with_pos: bool = False):
+    """Yield (callee name, argument count) for every call expression in `body`, in order of
+    the opening parenthesis. Calls nested inside another call's parentheses are yielded
+    too: an argument (`h(g(x))`), a condition (`if (g(x))`), and a lambda or callback passed
+    as an argument (`xs.forEach(x -> g(x))`) each hold calls of their own. With `with_pos`,
+    each tuple also carries the offset of the opening parenthesis."""
+    n = len(body)
+    for i in range(n):
+        if body[i] != "(":
+            continue
+        j = i - 1
+        while j >= 0 and body[j].isspace():
+            j -= 1
+        if j < 0 or not (body[j].isalnum() or body[j] in "_$"):
+            continue
+        k = j
+        while k >= 0 and (body[k].isalnum() or body[k] in "_$"):
+            k -= 1
+        word = body[k + 1:j + 1]
+        depth, p, args, content = 0, i, 0, False
+        while p < n:
+            c = body[p]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            elif c == "," and depth == 1:
+                args += 1
+            elif depth == 1 and not c.isspace():
+                content = True
+            p += 1
+        yield (word, (args + 1 if content else 0), i) if with_pos else \
+            (word, args + 1 if content else 0)
+
+
+def _owned_lines(raw: list) -> list[list[int]]:
+    """Per raw function, the 1-based lines whose calls it owns, so each call is counted once.
+
+    lizard reports a nested function as its own record, inside its parent's line range.
+      * A NAMED nested function (a Python inner def, a JS function declaration, a method of
+        a Java anonymous class) owns its lines; they are carved out of every enclosing one.
+      * An ANONYMOUS nested function (a callback or lambda passed inline) is part of the
+        enclosing function's code, the same way a Java lambda is (lizard does not report
+        those at all), so it stays with the parent and owns nothing itself. Only a
+        top-level anonymous function, with no enclosing function, owns its lines."""
+    def anon(i):
+        return raw[i][1].startswith("(") or not raw[i][1]
+
+    by_file: dict = {}
+    for idx, r in enumerate(raw):
+        by_file.setdefault(r[0], []).append(idx)
+    owned: list = [None] * len(raw)
+    for idxs in by_file.values():
+        idxs.sort(key=lambda i: (raw[i][2], -raw[i][3]))
+        enclosed = set()
+        for pos, i in enumerate(idxs):
+            s, e = raw[i][2], raw[i][3]
+            lines = set(range(s, e + 1))
+            for j in idxs[pos + 1:]:
+                s2, e2 = raw[j][2], raw[j][3]
+                if s2 > e:
+                    break
+                if e2 <= e and (s2, e2) != (s, e):
+                    enclosed.add(j)
+                    if not anon(j):
+                        lines.difference_update(range(s2, e2 + 1))
+            owned[i] = sorted(lines)
+        for j in enclosed:
+            if anon(j):
+                owned[j] = []
+    return owned
 
 
 def _short(name: str) -> str:
@@ -140,10 +254,14 @@ def analyze_tree(root: str, include_tests: bool = False) -> dict:
                 src_lines = fh.read().splitlines()
         except OSError:
             continue
-        lines_cache[rel] = src_lines
         ext = os.path.splitext(rel)[1].lstrip(".")
+        lines_cache[rel] = _strip("\n".join(src_lines), ext).split("\n")
+        skip = (_rust_test_lines("\n".join(src_lines))
+                if ext == "rs" and not include_tests else [])
         for fn in analysis.function_list:
             s, e = int(fn.start_line), int(fn.end_line)
+            if any(a <= s <= b for a, b in skip):
+                continue
             body_raw = "\n".join(src_lines[max(s - 1, 0):e])
             md = {"cc": int(fn.cyclomatic_complexity),
                   "nloc": int(getattr(fn, "nloc", 0) or 0),
@@ -156,10 +274,11 @@ def analyze_tree(root: str, include_tests: bool = False) -> dict:
         return {"funcs": {}, "wmc": {}}
 
     names = {r[1] for r in raw}
+    owned = _owned_lines(raw)
     out_gen: dict = {}
     in_by_name: dict = {}
     agg: dict = {}                      # fid -> complexity metrics, merged by max over overloads
-    for rel, short, start, end, md in raw:
+    for idx, (rel, short, start, end, md) in enumerate(raw):
         fid = (rel, short)
         cur = agg.get(fid)
         if cur is None:
@@ -168,10 +287,16 @@ def analyze_tree(root: str, include_tests: bool = False) -> dict:
             for k, v in md.items():
                 if v > cur.get(k, 0):
                     cur[k] = v
-        body = "\n".join(lines_cache.get(rel, [])[max(start - 1, 0):end])
-        body = _STRIP.sub(lambda m: " " * len(m.group(0)), body)
+        src = lines_cache.get(rel, [])
+        body = "\n".join(src[ln - 1] for ln in owned[idx] if ln - 1 < len(src))
+        # offset where the body's first line ends, if that line is the signature line
+        first_line = (len(src[start - 1]) if owned[idx] and owned[idx][0] == start
+                      and start <= len(src) else 0)
         og = 0
-        for callee, nargs in _call_sites(body):
+        for callee, nargs, pos in _call_sites(body, with_pos=True):
+            if callee == short and pos < first_line:
+                first_line = -1         # the function's own signature, not a call: once only
+                continue
             if callee in NOT_CALL or nargs == 0 or callee not in names:
                 continue
             og += nargs

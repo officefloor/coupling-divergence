@@ -169,14 +169,24 @@ def auc_ap(values: dict, gods: set, universe):
         i = j + 1
     sum_pos = sum(rk[t] for t in range(n) if allv[t][1] == 1)
     auc = (sum_pos - ng * (ng + 1) / 2) / (ng * nn)
-    # average precision: walk the universe in descending score order
-    order = sorted(universe, key=lambda k: -values.get(k, 0))
-    tp, ap = 0, 0.0
-    for rank, k in enumerate(order, 1):
-        if k in gods:
-            tp += 1
-            ap += tp / rank
-    return auc, ap / ng, ng, ng + nn
+    # average precision, tie-aware: step through DISTINCT score thresholds (descending), so
+    # a block of tied units is taken as a whole -- AP = sum over thresholds of
+    # (recall gained) x (precision at that threshold). Walking unit by unit would order a
+    # tie by set iteration, i.e. by the process hash seed, and AP would not reproduce.
+    by_v: dict = {}
+    for v, is_god in allv:
+        t = by_v.setdefault(v, [0, 0])
+        t[0] += 1
+        t[1] += is_god
+    tp = seen = 0
+    ap = 0.0
+    for v in sorted(by_v, reverse=True):
+        cnt, pos_here = by_v[v]
+        seen += cnt
+        tp += pos_here
+        if pos_here:
+            ap += (pos_here / ng) * (tp / seen)
+    return auc, ap, ng, ng + nn
 
 
 # ---------------------------------------------------------------------------

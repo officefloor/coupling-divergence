@@ -87,7 +87,8 @@ def main(argv: list[str] | None = None) -> int:
     st = sub.add_parser("study", help="multi-language detection study vs textbook gods "
                         "(clones latest default branch, records the commit, deletes clone)")
     st.add_argument("-o", "--out", default="coupling-divergence_study.json")
-    st.add_argument("--repos", default=None, help="file with one git URL per line")
+    st.add_argument("--repos", default=None, help="file with one `URL [COMMIT]` per line; a "
+                    "commit pins the exact revision measured")
     st.add_argument("--pmd", default=None, help="PMD binary, for the Java GodClass reference")
     st.add_argument("--ck", default=None, help="CK jar (mauricioaniche/ck), for the Java "
                     "LCOM/TCC/CBO cohesion-and-coupling god definitions")
@@ -122,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "study":
         repos = study.DEFAULT_REPOS
         if args.repos:
-            repos = study.read_repo_list(args.repos)
+            repos = study.read_repo_pins(args.repos)
         manifest = os.path.join(os.path.dirname(args.repos or "."), "sampling-manifest.json")
         study.run(repos, args.out, args.pmd, args.keep, manifest, args.ck)
         if args.anc:
