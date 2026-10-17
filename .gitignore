@@ -13,9 +13,14 @@ __pycache__/
 # Generated ancillary-data packages (the paper attachment is produced per run).
 /anc/
 
-# LaTeX build intermediates (the paper sources and preserved data ARE committed).
+# LaTeX build intermediates (paper sources ARE committed; per-run DATA is NOT).
 paper/*.aux
 paper/*.log
 paper/*.out
 paper/*.toc
 paper/build.log
+
+# Per-run study data is NOT committed (study.json can reach ~100MB).
+# Regenerate by running the study, or use the curated subset published as the
+# paper's ancillary data. Readers who want all the data run the project themselves.
+paper/data/
