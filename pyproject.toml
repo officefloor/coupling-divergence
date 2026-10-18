@@ -3,16 +3,16 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "coupling-divergence"
-version = "0.0.1"
-description = "Watch coupling divergence to catch a god class before it forms."
+name = "sinew"
+version = "0.1.0"
+description = "Find heavy latent change-coupling (sinews): thick, repeatedly co-changed, call-edge-free method bundles that are expensive to refactor."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [{ name = "Daniel Sagenschneider" }]
 keywords = [
-    "code-quality", "complexity", "god-class", "code-smell", "static-analysis",
-    "technical-debt", "coupling", "refactoring", "git", "ai-pipeline",
+    "code-quality", "coupling", "co-change", "logical-coupling", "evolutionary-coupling",
+    "change-coupling", "refactoring", "technical-debt", "git", "mining-software-repositories",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -23,17 +23,16 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Version Control :: Git",
 ]
-# Standalone and language-independent: lizard supplies the multi-language function list,
-# cyclomatic complexity and line ranges; everything above it is lexical. No other runtime
-# dependency. (Same substrate as impact-gate.)
-# PINNED, not >=: lizard 1.24.x parses a Java class annotated @Entity then @Table(...) to
-# ZERO functions (study.check_parser fails closed on it). Same pin as the sibling experiment
-# spring-petclinic-rest-long-degradation-test; PMD 7.27.0 and CK 0.7.0 are pinned in study.py.
-dependencies = ["lizard==1.23.0"]
+# PINNED, not >=, for reproducibility. These exact versions are validated at start-up
+# (sinew/deps.py) and vendored into lib/ by setup.sh. Cognitive complexity is
+# computed by a vendored estimator (sinew/cognitive.py), not a dependency.
+dependencies = [
+    "tree-sitter==0.23.2",
+    "tree-sitter-java==0.23.5",
+]
 
 [project.scripts]
-coupling-divergence = "coupling_divergence.cli:main"
-cdiv = "coupling_divergence.cli:main"
+sinew = "sinew.cli:main"
 
 [tool.setuptools]
-packages = ["coupling_divergence"]
+packages = ["sinew"]
