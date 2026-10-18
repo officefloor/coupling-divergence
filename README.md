@@ -1,20 +1,27 @@
-# Sinew — heavy latent change-coupling
+# Sinew — heavy change-coupling
 
-Find the **sinews** in a codebase: thick bundles of data threaded between methods that are
-repeatedly edited together and have no clean call boundary to cut along. A sinew is
-connective tissue — it bears load under tension and is expensive to sever. Most couplings
-are light capillaries; the few heavy sinews are where change concentrates and where
-refactoring becomes expensive, so they are the ones worth reconsidering *before* they
-strengthen.
+Find the **sinews** in a codebase: thick bundles of data threaded through chains of methods
+that are repeatedly edited together. A sinew is connective tissue — it bears load under
+tension and is expensive to sever. Most couplings are light capillaries; the few heavy sinews
+are where change concentrates and where refactoring becomes expensive, so they are the ones
+worth reconsidering *before* they strengthen.
 
 The philosophy and the full method are in **[`paper/SINEW.md`](paper/SINEW.md)**. In short:
 
 - **Coupling is not conserved.** Any method can manufacture flow (from fields, state, `new`),
   so there is no closed circuit to reason about by conservation. The quantity that matters is
   **refactor cost** — how hard a coupling is to cut — and it lives in the heavy tail.
-- **A sinew = heavy × latent × co-changing.** It builds on *logical / evolutionary coupling*
+- **A sinew = heavy × threaded × co-changing.** It builds on *logical / evolutionary coupling*
   (Gall 1998, Zimmermann 2004) and adds **weight** (parameter data-flow thickness),
-  **direction** (source / joint / sink) and a **discriminator** (span).
+  **direction** (source / joint / sink), the **forward ratio** (the share of a method's own
+  parameters it hands onward unchanged — a conduit threads tramp data) and a
+  **discriminator** (span).
+- **The cost is in the threading, not at the ends.** A sinew's members are the conduits that
+  pass data down a chain; the terminal that consumes it (a stable leaf algorithm, or a library
+  call) rarely changes and rarely shows up. Whether two co-changing methods also call each
+  other is therefore *not* a criterion: a direct call neither creates nor removes the
+  threading cost. Call resolution (internal / external) is recorded as metadata only, so the
+  analysis needs no type resolver and works in any language.
 - **Span is the verdict.** A small tight cluster (span ≤ 3) is an intrinsic contract — leave
   it. A large one (span ≥ 4) is accidental sprawl — a God-method hub (low symmetry) or a
   parallel-maintenance clique (high symmetry) to reconsider.
@@ -42,6 +49,18 @@ git-ignored `results/` directory, and tables in `paper/tables.md` / `paper/aggre
 
 `./step3_run.sh --help` lists its options (`--sample`, `--out`, `--recent`, `--lib-dir`).
 
+## What is recorded, per method, at every commit
+
+The raw mine (`results/<date>/mines/<owner>__<name>.methods.jsonl`) keeps, for every
+implemented method at every mined commit: identity and placement (file, qualified name, line
+range); the **declared parameter count and names** (`params`, `param_names`); complexity (`cc`, `cognitive`, `nloc`, `tokens`, `nesting`); every outgoing call with its
+argument count, which of the method's own parameters it **forwards unchanged** (`fwd`) and its
+kind (internal / external); the rollups `out_args_*`, `n_calls_*`,
+`fwd_args`, `fwd_params`, `fwd_ratio`, `fwd_names`; and whether this commit changed the method
+and by how many added lines. The derived panel (`sinew analyze <base> -o panel.csv`) adds the
+arguments arriving from resolved callers (`in_args`, `in_calls`) and per-commit deltas, so
+parameter counts, inbound and forwarded flow can all be analysed later against change.
+
 ## The sample
 
 The repositories are drawn by
@@ -52,8 +71,10 @@ validated by `setup.sh`) both draws the sample in step 2 and runs the clone loop
 step 3. `./step2_sample.sh` runs it with this experiment's
 criteria, written out in the script:
 
-- Java only, across GitHub's popularity tiers (high >5000 stars, mid 1000–5000, low 200–999),
-  seeded and stratified, grown until there are 30 usable repositories;
+- Java by default (`./step2_sample.sh --langs java,python,go` draws a multi-language sample;
+  the target is per language), across GitHub's popularity tiers (high >5000 stars, mid
+  1000–5000, low 200–999), seeded and stratified, grown until there are 30 usable
+  repositories per language;
 - at least 500 commits, so every repository fills the mining window (`--recent 500`);
 - at least 50 methods in at least 15 source files with a method;
 - the author's own ecosystem excluded, as a conflict-of-interest guard.
@@ -84,8 +105,13 @@ validates every version. The pins are the single source of truth in
 Point the vendored deps elsewhere with `LIB_DIR=/path ./setup.sh`, then run with
 `--lib-dir /path` (default `./lib`, or `$SINEW_LIB`).
 
-The experiment is **Java-only** — the resolver is tree-sitter-java, which classifies each call
-as internal (own code) or external (library), package- and import-aware.
+The extractor covers **any language lizard parses**, Java included, through one instrument:
+lizard's function list (name, line range, parameter names, complexity) plus a lexical call
+scan that finds every call site, counts its arguments and notes which of the method's own
+parameters it forwards unchanged. One tool for every language keeps every measure comparable
+across a multi-language sample. A call is tagged internal when its callee name is a function
+defined in the tree and external otherwise; that tag is metadata only. The sampler needs an
+authenticated `gh` CLI.
 
 ## Run
 
@@ -108,7 +134,7 @@ Per-repository commands, for inspecting one project:
 
 ```
 sinew mine    <repo>          # raw per-method shape at every commit (JSONL)
-sinew sinew   <base>          # the directional sinew report + span verdict
+sinew sinew   <base>          # the directional sinew report (conduits, heavy sinews) + span verdict
 sinew tangle  <base>          # the edge-weight ladder + the dynamic (param-growth) test
 sinew relate  <base>          # complexity ↔ coupling ↔ cohesion relationships
 sinew predict <base>          # does PAST sinew predict FUTURE change beyond complexity?
@@ -125,7 +151,7 @@ repository git history
       │  sinew mine            → results/<date>/mines/<owner>__<name>.{methods,commits}.jsonl   (raw, append-only)
       ▼
    analysis (sinew/analyze.py)
-      │  in-coupling, directional in/out, co-change, weighted latent sinews, span clusters
+      │  in-coupling, directional in/out, forward ratio, co-change, heavy sinews, span clusters
       ▼
    study (sinew/sinew_study.py)
       │  per-project outlier test · aggregate · predictive-value test · dossiers
@@ -144,8 +170,10 @@ independently inspected and the whole experiment re-run by anyone.
 
 ```
 sinew/   the experiment code (package)
-  discover.py          Java source-file discovery (excludes tests/deps/generated)
-  java_extract.py      per-method shape via tree-sitter-java (internal/external resolution)
+  discover.py          source-file discovery, any language (excludes tests/deps/generated)
+  extract.py           per-checkout extraction entry point + per-language file counts
+  extract_common.py    the per-method record contract + the forward-metric rollups
+  lizard_extract.py    per-method shape via lizard + lexical call sites (every language)
   cognitive.py         vendored cognitive-complexity estimator
   mine.py              the full-history miner (detached-worktree walk, resumable)
   analyze.py           derived views: in-coupling, co-change, tangle, relate, sinew, span verdict

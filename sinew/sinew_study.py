@@ -8,14 +8,14 @@ Three layers on top of the per-project `analyze.sinew`:
     up to its pinned commit, none after) and deletes it once mined. Resumable: a repo already
     done is skipped, and a partly mined one resumes its mine.
   * DOSSIER -- for each flagged (CONCERN) cluster, capture its member methods -- current
-    source (if the clone is present), the data they thread, their co-change commits and
-    whether an indirect call path exists -- into a markdown file, so WHY the sinew exists can
-    be inspected rather than asserted.
+    source (if the clone is present), the parameters they accept and hand onward (the data
+    the cluster threads) and their co-change commits -- into a markdown file, so WHY the
+    sinew exists can be inspected rather than asserted.
   * PREDICT -- the value test. Measure sinews as of an early cut of history, then test on the
     FUTURE commits whether sinew members accrue more change than complexity-matched peers. If
     past sinew strength predicts future volatility BEYOND complexity, the signal has value.
 
-Java only (the resolver is Java-specific). Standard library + git, plus
+Any language lizard parses (one extractor for all). Standard library + git, plus
 open-source-repository-sampler for the sample and its run loop.
 """
 from __future__ import annotations
@@ -62,31 +62,43 @@ def aggregate_row(base: str) -> dict:
     concern = [f for f in flags if f["concern"]]
     return {
         "base": os.path.basename(base),
-        "methods": s["n_methods"], "latent": s["heavy"]["n_latent_pairs"],
+        "methods": s["n_methods"], "pairs": s["heavy"]["n_pairs"],
+        "params_mean": s["params"]["mean"], "params_p90": s["params"]["p90"],
+        "fwd_ratio_mean": s["params"]["mean_fwd_ratio"], "conduits": s["n_conduits"],
         "top_decile": s["heavy"]["top_decile_share"], "n_heavy": s["heavy"]["n_heavy_madz"],
         "clusters": len(flags), "concern": len(concern),
         "max_span": max((f["span"] for f in flags), default=0),
         "out_cc_partial": s["controls"]["OUT ~ degree | cc (partial)"],
+        "in_cc_partial": s["controls"]["IN ~ degree | cc (partial)"],
+        "fwd_cc_partial": s["controls"]["fwd_args ~ degree | cc (partial)"],
+        "fwd_nloc_partial": s["controls"]["fwd_args ~ degree | nloc (partial)"],
         "flags": flags,
     }
 
 
 def _print_aggregate(rows: list) -> None:
+    def fmt(v):
+        return "   n/a" if v is None else f"{v:>+7.3f}"
     print("\nSINEW STUDY — per project")
-    print(f"  {'project':36} {'meth':>6} {'latent':>6} {'topdec':>6} {'heavy':>5} "
-          f"{'clust':>5} {'concern':>7} {'maxspan':>7} {'OUT|cc':>7}")
+    print(f"  {'project':36} {'meth':>6} {'pairs':>6} {'params':>6} {'fwd':>5} {'topdec':>6} "
+          f"{'heavy':>5} {'clust':>5} {'concern':>7} {'maxspan':>7} {'IN|cc':>7} {'OUT|cc':>7} "
+          f"{'fwd|cc':>7} {'fwd|nloc':>8}")
     for r in rows:
-        oc = r["out_cc_partial"]
-        print(f"  {r.get('full_name') or r['base']:36} {r['methods']:>6} {r['latent']:>6} "
-              f"{r['top_decile']:>6.2f} {r['n_heavy']:>5} {r['clusters']:>5} "
-              f"{r['concern']:>7} {r['max_span']:>7} "
-              f"{'   n/a' if oc is None else f'{oc:>+7.3f}'}")
-    # the headline the study exists to produce: does the OUT|cc signal replicate, and how
-    # often does span>=4 sprawl actually occur?
-    ocs = [r["out_cc_partial"] for r in rows if r["out_cc_partial"] is not None]
-    if ocs:
-        print(f"\n  OUT~degree|cc replicates: mean {sum(ocs) / len(ocs):+.3f} over "
-              f"{len(ocs)} projects (range {min(ocs):+.3f}..{max(ocs):+.3f})")
+        print(f"  {r.get('full_name') or r['base']:36} {r['methods']:>6} {r['pairs']:>6} "
+              f"{r['params_mean']:>6.2f} {r['fwd_ratio_mean']:>5.2f} {r['top_decile']:>6.2f} "
+              f"{r['n_heavy']:>5} {r['clusters']:>5} {r['concern']:>7} {r['max_span']:>7} "
+              f"{fmt(r['in_cc_partial'])} {fmt(r['out_cc_partial'])} "
+              f"{fmt(r['fwd_cc_partial'])} {fmt(r['fwd_nloc_partial']):>8}")
+    # the headlines the study exists to produce: do the complexity-controlled signals
+    # replicate across projects, and how often does span>=4 sprawl actually occur?
+    for key, label in (("in_cc_partial", "IN~degree|cc"), ("out_cc_partial", "OUT~degree|cc"),
+                       ("fwd_cc_partial", "fwd_args~degree|cc"),
+                       ("fwd_nloc_partial", "fwd_args~degree|nloc")):
+        xs = [r[key] for r in rows if r.get(key) is not None]
+        if xs:
+            print(f"\n  {label}: mean {sum(xs) / len(xs):+.3f} over {len(xs)} projects "
+                  f"(range {min(xs):+.3f}..{max(xs):+.3f}), positive in "
+                  f"{sum(1 for x in xs if x > 0)}/{len(xs)}")
     print(f"  projects with >=1 span>=4 sprawl cluster: "
           f"{sum(1 for r in rows if r['concern'])}/{len(rows)}")
 
@@ -133,25 +145,26 @@ def dossier(base: str, out_dir: str, repo: str | None = None, max_clusters: int 
     os.makedirs(out_dir, exist_ok=True)
     s = A.sinew(base)
     rows = A.head_rows(base)
-    byname = {(r["file"], r["qualname"]): r for r in rows}
-    # name -> candidate (file, qualname) at HEAD (cluster members are stored by name only)
-    name_nodes: dict = defaultdict(list)
-    for (f, q), r in byname.items():
-        name_nodes[r["name"]].append((f, q, r))
+    bykey: dict = defaultdict(list)            # (file, qualname) -> records (overloads)
+    for r in rows:
+        bykey[(r["file"], r["qualname"])].append(r)
     flags = [f for f in flag_outliers(s) if f["concern"]]
     written = 0
     for idx, cl in enumerate(flags[:max_clusters], 1):
-        memnames = [m[0] for m in cl["members"]]
         nodes = []
-        for nm in memnames:
-            for f, q, r in name_nodes.get(nm, []):
+        for f, q in (tuple(k) for k in cl["member_keys"]):
+            for r in bykey.get((f, q), []):
                 nodes.append((f, q, r))
-        members_keys = {(f, q) for f, q, _ in nodes}
+        members_keys = {tuple(k) for k in cl["member_keys"]}
         cc = _cochange_commits(base, members_keys)
         proj = os.path.basename(base)
         lines = [f"# Sinew dossier — {proj} cluster {idx}", "",
                  f"- **span** {cl['span']}  **links** {cl['links']}  "
-                 f"**density** {cl['density']}  **symmetry** {cl['symmetry']}",
+                 f"**density** {cl['density']}  **symmetry** {cl['symmetry']}  "
+                 f"**files** {cl['files']}",
+                 f"- **conduits** {cl['n_conduits']}/{cl['span']}  "
+                 f"**mean forward ratio** {cl['mean_fwd_ratio']}  "
+                 f"**threaded** {', '.join(f'`{t}`' for t in cl['threaded']) or '(none shared)'}",
                  f"- **verdict** {cl['kind'].upper()}  "
                  f"(outlier madz={cl['madz']}: {'YES' if cl['outlier'] else 'no'})", "",
                  "## Members", ""]
@@ -160,7 +173,9 @@ def dossier(base: str, out_dir: str, repo: str | None = None, max_clusters: int 
             IN = r.get("params", 0)
             OUT = r.get("out_args_own", 0) + r.get("out_args_ext", 0)
             lines.append(f"### `{r['name']}`  ({f}:{r.get('start')}-{r.get('end')})")
-            lines.append(f"IN={IN} OUT={OUT} surface={IN + OUT} cc={r.get('cc', 0)} "
+            lines.append(f"IN={IN} ({', '.join(r.get('param_names', [])) or '-'}) OUT={OUT} "
+                         f"surface={IN + OUT} forwards={', '.join(r.get('fwd_names', [])) or '-'} "
+                         f"fwd_ratio={r.get('fwd_ratio', 0.0)} cc={r.get('cc', 0)} "
                          f"nloc={r.get('nloc', 0)}")
             src = _slice_source(repo, f, r.get("start", 1), r.get("end", 1)) if repo else None
             if src:
@@ -174,6 +189,9 @@ def dossier(base: str, out_dir: str, repo: str | None = None, max_clusters: int 
                          + (f" — {m}" if m else ""))
         lines += ["", "## Inspect: why does this sinew exist?", "",
                   "- intrinsic contract / dual?  (then span is small and this is a false flag)",
+                  "- tramp data — the threaded parameters above are handed down a chain to a "
+                  "terminal that does not change (a stable leaf, or a library call)? Then the "
+                  "cost is the threading: a context / parameter object cuts it.",
                   "- missed abstraction — a data clump these pass around that should be an "
                   "object?",
                   "- copy-paste duplication — N near-identical shapes edited in lockstep?",
@@ -299,7 +317,7 @@ def _mine_name(full_name: str) -> str:
 
 def study(sample_path: str, out_dir: str, recent: int = 500,
           emit_dossiers: bool = True) -> list:
-    """Mine the recent history of every usable repository of the sample (Java resolver),
+    """Mine the recent history of every usable repository of the sample (any language),
     analyse its sinews, emit dossiers for its CONCERN clusters (with member source and commit
     messages, read from the clone while it exists), then aggregate and run the predictive test.
 

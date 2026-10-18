@@ -16,6 +16,14 @@ import json
 import os
 import sys
 
+# The complexity/size-controlled signals the study reports per project, in table order.
+SIGNALS = (
+    ("in_cc_partial", "IN → co-change degree | cc", r"IN$\mid$cc"),
+    ("out_cc_partial", "OUT → co-change degree | cc", r"OUT$\mid$cc"),
+    ("fwd_cc_partial", "forwarded args → co-change degree | cc", r"fwd$\mid$cc"),
+    ("fwd_nloc_partial", "forwarded args → co-change degree | nloc", r"fwd$\mid$nloc"),
+)
+
 
 def _load(results_dir: str) -> list:
     path = os.path.join(results_dir, "sinew-study.json")
@@ -34,35 +42,51 @@ def _fmt(v, nd=3):
     return "n/a" if v is None else f"{v:+.{nd}f}" if isinstance(v, float) else str(v)
 
 
+def _replication_lines(rows: list, bullet: str = "*") -> list:
+    """One line per signal: mean, range and how many projects are positive."""
+    out = []
+    for key, label, _ in SIGNALS:
+        xs = [r[key] for r in rows if r.get(key) is not None]
+        if xs:
+            out.append(f"{bullet}{label}: mean {sum(xs) / len(xs):+.3f} over {len(xs)} "
+                       f"projects (range {min(xs):+.3f}…{max(xs):+.3f}), positive in "
+                       f"{sum(1 for x in xs if x > 0)}/{len(xs)}.{bullet}")
+    return out
+
+
 def aggregate_table(rows: list) -> str:
-    """Per-project summary: size, latent sinews, concentration, sprawl, the cc-controlled signal."""
-    head = ("| project | methods | latent | top-decile | heavy | clusters | concern | "
-            "max span | OUT | cc |\n"
-            "|---|--:|--:|--:|--:|--:|--:|--:|--:|")
+    """Per-project summary: size, co-changing pairs, declared parameters and forward ratio,
+    concentration, sprawl, and the complexity/size-controlled signals."""
+    head = ("| project | methods | pairs | params (mean) | fwd ratio | top-decile | heavy | "
+            "clusters | concern | max span | "
+            + " | ".join(s[2].replace("$\\mid$", " \\| ") for s in SIGNALS) + " |\n"
+            "|---|" + "--:|" * (9 + len(SIGNALS)))
     out = [head]
     for r in sorted(rows, key=lambda r: -r.get("methods", 0)):
-        out.append(f"| {_project(r)} | {r['methods']} | {r['latent']} | "
+        sig = " | ".join(_fmt(r.get(k)) for k, _, _ in SIGNALS)
+        out.append(f"| {_project(r)} | {r['methods']} | {r['pairs']} | "
+                   f"{r.get('params_mean', 0):.2f} | {r.get('fwd_ratio_mean', 0):.2f} | "
                    f"{r['top_decile']:.2f} | {r['n_heavy']} | {r['clusters']} | "
-                   f"{r['concern']} | {r['max_span']} | {_fmt(r.get('out_cc_partial'))} |")
-    ocs = [r["out_cc_partial"] for r in rows if r.get("out_cc_partial") is not None]
-    if ocs:
+                   f"{r['concern']} | {r['max_span']} | {sig} |")
+    rep = _replication_lines(rows)
+    if rep:
         out.append("")
-        out.append(f"*OUT → co-change-degree controlling for complexity replicates: "
-                   f"mean {sum(ocs) / len(ocs):+.3f} over {len(ocs)} projects "
-                   f"(range {min(ocs):+.3f}…{max(ocs):+.3f}).*")
+        out += rep
     return "\n".join(out)
 
 
 def latex_aggregate(rows: list) -> str:
-    lines = [r"\begin{tabular}{lrrrrrr}", r"\toprule",
-             r"project & methods & latent & top-dec. & concern & max span & OUT$\mid$cc \\",
+    cols = "lrrrrrrr" + "r" * len(SIGNALS)
+    lines = [rf"\begin{{tabular}}{{{cols}}}", r"\toprule",
+             r"project & methods & pairs & params & fwd & top-dec. & concern & max span & "
+             + " & ".join(s[2] for s in SIGNALS) + r" \\",
              r"\midrule"]
     for r in sorted(rows, key=lambda r: -r.get("methods", 0)):
-        oc = r.get("out_cc_partial")
         name = _project(r).replace("_", "\\_")             # LaTeX-escape underscores
-        lines.append(f"{name} & {r['methods']} & {r['latent']} & "
-                     f"{r['top_decile']:.2f} & {r['concern']} & {r['max_span']} & "
-                     f"{'n/a' if oc is None else f'{oc:+.3f}'} \\\\")
+        sig = " & ".join("n/a" if r.get(k) is None else f"{r[k]:+.3f}" for k, _, _ in SIGNALS)
+        lines.append(f"{name} & {r['methods']} & {r['pairs']} & "
+                     f"{r.get('params_mean', 0):.2f} & {r.get('fwd_ratio_mean', 0):.2f} & "
+                     f"{r['top_decile']:.2f} & {r['concern']} & {r['max_span']} & {sig} \\\\")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join(lines)
 

@@ -5,8 +5,9 @@ same mine can be looked at many ways without re-walking history:
 
   * in-coupling (fan-in) -- by resolving each INTERNAL outgoing edge to the callee method(s)
     it targets (match the edge's resolved receiver type + callee name to a method record at
-    that same commit) and accumulating the arguments that arrive. Ambiguous matches (overloads
-    / same-named methods on the matched type) split the arguments equally and are flagged.
+    that same commit; an edge with no resolved type, as the lexical extractors emit, matches
+    by callee name alone) and accumulating the arguments that arrive. Ambiguous matches
+    (overloads / same-named methods) split the arguments equally and are flagged.
   * signed internal coupling divergence  delta = out_internal - in_internal  per method.
   * change-on-change -- each metric's delta from the method's PREVIOUS commit (identity is
     (file, qualname)), with is_new and age-in-commits.
@@ -71,37 +72,51 @@ def head_rows(base: str) -> list:
 # ---------------------------------------------------------------------------
 # in-coupling: resolve internal edges to target methods at one commit
 # ---------------------------------------------------------------------------
+class _Targets:
+    """Resolve an internal call edge to the method record(s) it targets at one commit. A class
+    is identified by its fully-qualified name (package + type) and by its simple name, so
+    either form of a resolved `target` matches. An edge with no `target` (the lexical
+    extractors, which know only the callee's name) matches every method of that name."""
+
+    def __init__(self, rows: list) -> None:
+        self.by_fqn: dict = defaultdict(list)       # (class_fqn, method_name)   -> [mkey]
+        self.by_simple: dict = defaultdict(list)    # (class_simple, method_name) -> [mkey]
+        self.by_name: dict = defaultdict(list)      # method_name                -> [mkey]
+        for r in rows:
+            mkey = (r["file"], r["qualname"])
+            pkg, typ, name = r.get("package", ""), r.get("type", ""), r["name"]
+            self.by_name[name].append(mkey)
+            if typ:
+                fqn = (pkg + "." if pkg else "") + typ
+                self.by_fqn[(fqn, name)].append(mkey)
+                self.by_simple[(typ.split(".")[-1], name)].append(mkey)
+
+    def __call__(self, e: dict) -> set:
+        """The distinct method keys an internal edge may target (empty if none recorded)."""
+        if e.get("kind") != "internal":
+            return set()
+        tgt, callee = e.get("target"), e.get("callee")
+        if not callee:
+            return set()
+        if tgt:
+            hits = (self.by_fqn.get((tgt, callee))
+                    or self.by_simple.get((tgt.split(".")[-1], callee)) or [])
+        else:
+            hits = self.by_name.get(callee, [])
+        return set(hits)
+
+
 def in_coupling(rows: list) -> dict:
-    """method key (file, qualname) -> {"in_args", "in_calls", "in_ambig"} for one commit.
-
-    An internal edge carries a resolved receiver `target` (a class FQN for this/unqualified
-    calls, or a simple type name for field/param/local/new) and a `callee` method name. We
-    match it to the method records of that class with that name. A class is identified both by
-    its fully-qualified name (package + type) and by its simple name, so either form of target
-    resolves."""
-    by_fqn: dict = defaultdict(list)       # (class_fqn, method_name)   -> [mkey]
-    by_simple: dict = defaultdict(list)    # (class_simple, method_name) -> [mkey]
-    for r in rows:
-        mkey = (r["file"], r["qualname"])
-        pkg, typ, name = r.get("package", ""), r.get("type", ""), r["name"]
-        if typ:
-            fqn = (pkg + "." if pkg else "") + typ
-            by_fqn[(fqn, name)].append(mkey)
-            by_simple[(typ.split(".")[-1], name)].append(mkey)
-
+    """method key (file, qualname) -> {"in_args", "in_calls", "in_ambig"} for one commit:
+    the arguments and calls arriving over resolved internal edges (see _Targets)."""
+    targets = _Targets(rows)
     acc: dict = {(r["file"], r["qualname"]): {"in_args": 0.0, "in_calls": 0.0, "in_ambig": 0}
                  for r in rows}
     for r in rows:
         for e in r.get("calls", []):
-            if e.get("kind") != "internal":
+            uniq = targets(e)                  # overloads share one (file,qualname) node: once
+            if not uniq:
                 continue
-            tgt, callee = e.get("target"), e.get("callee")
-            if not tgt or not callee:
-                continue
-            hits = by_fqn.get((tgt, callee)) or by_simple.get((tgt.split(".")[-1], callee))
-            if not hits:
-                continue                       # target type has no such recorded method body
-            uniq = set(hits)                   # overloads share one (file,qualname) node: once
             share = 1.0 / len(uniq)
             for mk in uniq:
                 acc[mk]["in_args"] += e.get("args", 0) * share
@@ -115,24 +130,26 @@ def in_coupling(rows: list) -> dict:
 # the enriched per-(commit, method) panel
 # ---------------------------------------------------------------------------
 _METRICS = ("cc", "cognitive", "nloc", "tokens", "nesting", "params",
-            "out_own", "out_ext", "in_args", "delta")
+            "out_own", "out_ext", "in_args", "delta", "fwd_args")
 
 PANEL_COLUMNS = [
     "i", "sha", "atime", "file", "package", "type", "qualname", "name", "start", "end",
     "cc", "cognitive", "nloc", "tokens", "nesting", "params",
     "out_own", "out_ext", "out_unres", "n_out_own", "n_out_ext", "n_out_unres",
     "in_args", "in_calls", "in_ambig", "delta",
+    "fwd_args", "fwd_params", "fwd_ratio",
     "changed", "churn_add", "is_new", "age",
     "d_cc", "d_cognitive", "d_nloc", "d_tokens", "d_nesting", "d_params",
-    "d_out_own", "d_ext", "d_in", "d_delta",
+    "d_out_own", "d_ext", "d_in", "d_delta", "d_fwd_args",
 ]
 
 
 def panel(base: str):
     """Yield enriched rows (dicts keyed by PANEL_COLUMNS), streaming commit by commit so the
     whole mine never has to be materialised twice. `delta` is the signed internal coupling
-    divergence out_internal - in_internal; `d_*` are the change from this method's previous
-    commit (0 and is_new=1 on first appearance)."""
+    divergence out_internal - in_internal; `fwd_*` are the forward metrics (parameters handed
+    onward unchanged); `d_*` are the change from this method's previous commit (0 and
+    is_new=1 on first appearance)."""
     from collections import Counter
     last: dict = {}                            # mkey -> dict of prior metric values
     first_i: dict = {}
@@ -154,6 +171,7 @@ def panel(base: str):
                 "out_own": out_own, "out_ext": r.get("out_args_ext", 0),
                 "in_args": round(ia, 3),
                 "delta": round(out_own - ia, 3),
+                "fwd_args": r.get("fwd_args", 0),
             }
             prev = last.get(mkey)
             is_new = prev is None
@@ -171,6 +189,8 @@ def panel(base: str):
                 "n_out_unres": r.get("n_calls_unresolved", 0),
                 "in_args": cur["in_args"], "in_calls": round(ical, 3),
                 "in_ambig": ic["in_ambig"], "delta": cur["delta"],
+                "fwd_args": cur["fwd_args"], "fwd_params": r.get("fwd_params", 0),
+                "fwd_ratio": r.get("fwd_ratio", 0.0),
                 "changed": int(bool(r.get("changed"))), "churn_add": r.get("churn_add", 0),
                 "is_new": int(is_new), "age": 0 if is_new else i_idx - first_i[mkey],
             }
@@ -242,27 +262,13 @@ def _commits(base: str) -> list:
 
 def internal_edges(rows: list) -> set:
     """Undirected structural call pairs frozenset({caller, callee}) for the resolved INTERNAL
-    edges at one snapshot (self-loops dropped). Same target matching as in_coupling."""
-    by_fqn: dict = defaultdict(list)
-    by_simple: dict = defaultdict(list)
-    for r in rows:
-        mk = (r["file"], r["qualname"])
-        pkg, typ, name = r.get("package", ""), r.get("type", ""), r["name"]
-        if typ:
-            fqn = (pkg + "." if pkg else "") + typ
-            by_fqn[(fqn, name)].append(mk)
-            by_simple[(typ.split(".")[-1], name)].append(mk)
+    edges at one snapshot (self-loops dropped)."""
+    targets = _Targets(rows)
     edges: set = set()
     for r in rows:
         caller = (r["file"], r["qualname"])
         for e in r.get("calls", []):
-            if e.get("kind") != "internal":
-                continue
-            tgt, callee = e.get("target"), e.get("callee")
-            if not tgt or not callee:
-                continue
-            for mk in (by_fqn.get((tgt, callee)) or by_simple.get((tgt.split(".")[-1], callee))
-                       or []):
+            for mk in targets(e):
                 if mk != caller:
                     edges.add(frozenset((caller, mk)))
     return edges
@@ -380,28 +386,13 @@ def _print_relationships(base: str, max_commit_size: int = 30) -> None:
 def weighted_edges(rows: list) -> dict:
     """frozenset({caller, callee}) -> {"w": total call-arguments flowing across the internal
     edges between the two methods (both directions summed), "n": number of resolved call
-    sites}. Same target matching as internal_edges; ambiguous targets split the arguments."""
-    by_fqn: dict = defaultdict(list)
-    by_simple: dict = defaultdict(list)
-    for r in rows:
-        mk = (r["file"], r["qualname"])
-        pkg, typ, name = r.get("package", ""), r.get("type", ""), r["name"]
-        if typ:
-            fqn = (pkg + "." if pkg else "") + typ
-            by_fqn[(fqn, name)].append(mk)
-            by_simple[(typ.split(".")[-1], name)].append(mk)
+    sites}. Ambiguous targets split the arguments."""
+    targets = _Targets(rows)
     edges: dict = defaultdict(lambda: {"w": 0.0, "n": 0.0})
     for r in rows:
         caller = (r["file"], r["qualname"])
         for e in r.get("calls", []):
-            if e.get("kind") != "internal":
-                continue
-            tgt, callee = e.get("target"), e.get("callee")
-            if not tgt or not callee:
-                continue
-            hits = (by_fqn.get((tgt, callee))
-                    or by_simple.get((tgt.split(".")[-1], callee)) or [])
-            uniq = {mk for mk in hits if mk != caller}
+            uniq = {mk for mk in targets(e) if mk != caller}
             if not uniq:
                 continue
             share = 1.0 / len(uniq)
@@ -553,11 +544,13 @@ def _print_tangle(base: str, max_commit_size: int = 30) -> None:
 # sinew (F2, directional): the data-flow skeleton. Each method has a DIRECTION --
 # OUT = args it forwards to callees (upstream source), IN = params it accepts
 # (downstream sink); high on BOTH = a JOINT, a conduit that receives and forwards
-# a lot. Joints chained by co-change form a "sinew network": the load-bearing
-# knots where co-related change concentrates and refactoring gets expensive. The
-# low-traffic methods are ignored; the joints' in/out infers the pathway between
-# them even with no direct call edge (latent coupling). Complexity-CONTROLLED, so
-# the signal is not just "big methods cluster".
+# a lot. The forward metrics sharpen "conduit": fwd_ratio is the share of a method's
+# own parameters it hands onward unchanged (tramp data). Joints chained by co-change
+# form a "sinew network": the load-bearing knots where co-related change concentrates
+# and refactoring gets expensive. Whether two co-changing methods also call each other
+# is NOT a criterion: the cost of a sinew is in the threading, which a direct call edge
+# neither creates nor removes, so no call resolution is needed here. Complexity-
+# CONTROLLED, so the signal is not just "big methods cluster".
 # ---------------------------------------------------------------------------
 def _partial_spearman(x: list, y: list, z: list):
     """Partial Spearman of (x, y) controlling for z, from the three rank correlations."""
@@ -603,24 +596,53 @@ def _components(nodes: set, adj: dict) -> list:
     return comps
 
 
+# A conduit: at least this share of its own parameters handed onward unchanged, and at
+# least this many parameters (a one-parameter pass-through is a wrapper, not a thread).
+CONDUIT_RATIO = 0.5
+CONDUIT_MIN_PARAMS = 2
+
+
+def _threaded(members: list, M: dict, min_members: int = 2) -> list:
+    """Parameter names forwarded by at least `min_members` of the cluster's members: the
+    identifiers a cluster threads, the direct evidence of WHY it co-changes."""
+    from collections import Counter
+    cnt: Counter = Counter()
+    for mk in members:
+        for nm in M[mk]["fwd_names"]:
+            cnt[nm] += 1
+    return sorted(nm for nm, c in cnt.items() if c >= min_members)
+
+
 def sinew(base: str, max_commit_size: int = 30, min_k: int = 2) -> dict:
     from collections import Counter
     rows = head_rows(base)
     change_count, pair = cochange(base, max_commit_size)
-    wedges = weighted_edges(rows)                       # direct call edges (for latent split)
 
     M: dict = {}
     for r in rows:
         mk = (r["file"], r["qualname"])
-        M[mk] = {
-            "IN": r.get("params", 0),
-            "OUT": r.get("out_args_own", 0) + r.get("out_args_ext", 0),
-            "cc": r.get("cc", 0), "name": r["name"], "qualname": r["qualname"],
-            "file": r["file"],
-        }
+        m = M.get(mk)
+        if m is None:
+            M[mk] = m = {
+                "IN": r.get("params", 0),
+                "OUT": r.get("out_args_own", 0) + r.get("out_args_ext", 0),
+                "fwd_args": r.get("fwd_args", 0), "fwd_ratio": r.get("fwd_ratio", 0.0),
+                "fwd_names": set(r.get("fwd_names", [])),
+                "cc": r.get("cc", 0), "nloc": r.get("nloc", 0),
+                "name": r["name"], "qualname": r["qualname"], "file": r["file"],
+            }
+        else:                              # overloads share a node: keep the widest shape
+            m["IN"] = max(m["IN"], r.get("params", 0))
+            m["OUT"] += r.get("out_args_own", 0) + r.get("out_args_ext", 0)
+            m["fwd_args"] += r.get("fwd_args", 0)
+            m["fwd_ratio"] = max(m["fwd_ratio"], r.get("fwd_ratio", 0.0))
+            m["fwd_names"] |= set(r.get("fwd_names", []))
+            m["cc"] = max(m["cc"], r.get("cc", 0))
+            m["nloc"] += r.get("nloc", 0)
     for mk, m in M.items():
         m["net"] = m["OUT"] - m["IN"]
         m["joint"] = min(m["IN"], m["OUT"])
+        m["conduit"] = m["fwd_ratio"] >= CONDUIT_RATIO and m["IN"] >= CONDUIT_MIN_PARAMS
 
     # co-change degree among methods alive at HEAD
     partners: Counter = Counter()
@@ -644,24 +666,38 @@ def sinew(base: str, max_commit_size: int = 30, min_k: int = 2) -> dict:
         cls_deg[m["class"]].append(m["degree"])
     typology = {c: {"n": len(v), "mean_degree": round(sum(v) / len(v), 3) if v else 0.0}
                 for c, v in cls_deg.items()}
+    # conduit typology (orthogonal to direction): methods that thread their parameters
+    cond = [m["degree"] for m in M.values() if m["conduit"]]
+    noncond = [m["degree"] for m in M.values() if not m["conduit"]]
+    typology["conduit"] = {"n": len(cond),
+                           "mean_degree": round(sum(cond) / len(cond), 3) if cond else 0.0}
+    typology["non-conduit"] = {"n": len(noncond), "mean_degree":
+                               round(sum(noncond) / len(noncond), 3) if noncond else 0.0}
 
     # complexity-controlled: does being a conduit predict entanglement BEYOND complexity?
     ms = list(M.values())
     jointv = [m["joint"] for m in ms]
     deg = [m["degree"] for m in ms]
     ccv = [m["cc"] for m in ms]
+    nlocv = [m["nloc"] for m in ms]
+    fwdv = [m["fwd_args"] for m in ms]
+    ratiov = [m["fwd_ratio"] for m in ms]
     controls = {
         "jointness ~ degree (raw)": spearman(jointv, deg),
+        "fwd_args ~ degree (raw)": spearman(fwdv, deg),
         "cc ~ degree (raw)": spearman(ccv, deg),
+        "nloc ~ degree (raw)": spearman(nlocv, deg),
         "jointness ~ degree | cc (partial)": _partial_spearman(jointv, deg, ccv),
         "OUT ~ degree | cc (partial)": _partial_spearman([m["OUT"] for m in ms], deg, ccv),
         "IN ~ degree | cc (partial)": _partial_spearman([m["IN"] for m in ms], deg, ccv),
+        "fwd_args ~ degree | cc (partial)": _partial_spearman(fwdv, deg, ccv),
+        "fwd_args ~ degree | nloc (partial)": _partial_spearman(fwdv, deg, nlocv),
+        "fwd_ratio ~ degree | cc (partial)": _partial_spearman(ratiov, deg, ccv),
     }
 
     # the sinew network: nodes = JOINTS, edges = co-change (k>=min_k) between two joints
     joints = {mk for mk, m in M.items() if m["class"] == "joint"}
     adj: dict = defaultdict(set)
-    latent = explicit = 0
     for pr, k in pair.items():
         if k < min_k:
             continue
@@ -669,24 +705,19 @@ def sinew(base: str, max_commit_size: int = 30, min_k: int = 2) -> dict:
         if a in joints and b in joints:
             adj[a].add(b)
             adj[b].add(a)
-            if pr in wedges:
-                explicit += 1
-            else:
-                latent += 1
     comps = [c for c in _components(joints, adj) if len(c) >= 2]
     comps.sort(key=lambda c: len(c), reverse=True)
     clusters = []
     for c in comps[:8]:
         nets = sorted(M[mk]["net"] for mk in c)
         n_edges = sum(len(adj[mk] & set(c)) for mk in c) // 2
-        n_expl = sum(1 for mk in c for v in adj[mk] if v in c
-                     and frozenset((mk, v)) in wedges) // 2
         members = sorted(c, key=lambda mk: M[mk]["joint"], reverse=True)
         clusters.append({
-            "size": len(c), "edges": n_edges, "explicit": n_expl, "latent": n_edges - n_expl,
+            "size": len(c), "edges": n_edges,
             "net_span": [nets[0], nets[-1]],
+            "threaded": _threaded(c, M),
             "members": [(M[mk]["name"], M[mk]["IN"], M[mk]["OUT"], M[mk]["degree"],
-                         M[mk]["cc"]) for mk in members[:6]],
+                         M[mk]["cc"], M[mk]["fwd_ratio"]) for mk in members[:6]],
         })
 
     # outlier joints: ranked by degree*jointness, each with its complexity percentile
@@ -700,16 +731,18 @@ def sinew(base: str, max_commit_size: int = 30, min_k: int = 2) -> dict:
     scored.sort(key=lambda t: t[0], reverse=True)
     outliers = [{"name": m["name"], "IN": m["IN"], "OUT": m["OUT"], "net": m["net"],
                  "degree": m["degree"], "cc": m["cc"], "cc_pct": cc_pct(m["cc"]),
-                 "score": round(s, 1)} for s, m in scored[:15]]
+                 "fwd_ratio": m["fwd_ratio"], "score": round(s, 1)}
+                for s, m in scored[:15]]
 
-    # heavy latent sinews: thick plumbing (surface = IN+OUT) AND repeatedly co-changed, with
-    # NO direct call edge. Not conservation -- triage by thickness: find the few heavy bonds
-    # (hard to cut) amid the many light capillaries (cheap to cut). The thinner end sets the
-    # thickness (a sinew is only as hard to break as its breakable end).
+    # heavy sinews: thick plumbing (surface = IN+OUT) AND repeatedly co-changed. Not
+    # conservation -- triage by thickness: find the few heavy bonds (hard to cut) amid the
+    # many light capillaries (cheap to cut). The thinner end sets the thickness (a sinew is
+    # only as hard to break as its breakable end). Every co-changing pair is a candidate,
+    # whether or not the two also call each other.
     surf = {mk: m["IN"] + m["OUT"] for mk, m in M.items()}
-    lat = []
+    bonds = []
     for pr, k in pair.items():
-        if k < min_k or pr in wedges:
+        if k < min_k:
             continue
         a, b = tuple(pr)
         if a not in M or b not in M:
@@ -717,31 +750,33 @@ def sinew(base: str, max_commit_size: int = 30, min_k: int = 2) -> dict:
         thick = min(surf[a], surf[b])
         if thick <= 0:
             continue
-        lat.append((k * thick, k, thick, a, b))
-    lat.sort(key=lambda t: t[0], reverse=True)
-    masses = [t[0] for t in lat]
+        bonds.append((k * thick, k, thick, a, b))
+    bonds.sort(key=lambda t: t[0], reverse=True)
+    masses = [t[0] for t in bonds]
     total = sum(masses) or 1.0
     dec = max(1, len(masses) // 10)
     med = _median(masses)
     mad = _median([abs(x - med) for x in masses]) or 1.0
     heavy = {
-        "n_latent_pairs": len(lat),
+        "n_pairs": len(bonds),
         "top_decile_share": round(sum(masses[:dec]) / total, 3),
         "top_1pct_share": round(sum(masses[:max(1, len(masses) // 100)]) / total, 3),
         "n_heavy_madz": sum(1 for x in masses if 0.6745 * (x - med) / mad > 3.5),
         "top": [{"heaviness": round(h, 1), "k": k, "thick": th,
-                 "a": (M[a]["name"], M[a]["IN"], M[a]["OUT"], M[a]["cc"]),
-                 "b": (M[b]["name"], M[b]["IN"], M[b]["OUT"], M[b]["cc"])}
-                for h, k, th, a, b in lat[:15]],
+                 "shared": sorted(M[a]["fwd_names"] & M[b]["fwd_names"]),
+                 "a": (M[a]["name"], M[a]["IN"], M[a]["OUT"], M[a]["cc"], M[a]["fwd_ratio"]),
+                 "b": (M[b]["name"], M[b]["IN"], M[b]["OUT"], M[b]["cc"], M[b]["fwd_ratio"])}
+                for h, k, th, a, b in bonds[:15]],
     }
 
-    # [6] SPAN discriminator: connect the HEAVY latent sinews into a graph and take components.
+    # [6] SPAN discriminator: connect the HEAVY sinews into a graph and take components.
     # Daniel's rule -- a big SPAN (many methods roped together) = accidental sprawl (CONCERN);
     # a small tight clique = intrinsic cohesion/contract (equals/hashCode/toString), leave alone.
     # density ~1 = clique (contract-like); symmetry = mean min(surf)/max(surf) over the bond's
     # ends (contracts are symmetric duals; sprawl is asymmetric: a thin method roped to a thick).
+    # `threaded` names the parameters most members hand onward: the thing the sinew threads.
     hv_thr = med + (3.5 / 0.6745) * mad
-    hedges = [(a, b) for h, k, th, a, b in lat if h > hv_thr]
+    hedges = [(a, b) for h, k, th, a, b in bonds if h > hv_thr]
     adjH: dict = defaultdict(set)
     nodesH: set = set()
     for a, b in hedges:
@@ -762,19 +797,30 @@ def sinew(base: str, max_commit_size: int = 30, min_k: int = 2) -> dict:
             lo, hi = min(surf[a], surf[b]), max(surf[a], surf[b])
             syms.append(lo / hi if hi else 1.0)
         members = sorted(comp, key=lambda mk: surf[mk], reverse=True)
+        ratios = [M[mk]["fwd_ratio"] for mk in comp]
         spans.append({
             "span": span, "links": len(ce),
             "density": round(len(ce) / poss, 2) if poss else 0.0,
             "symmetry": round(sum(syms) / len(syms), 2) if syms else 0.0,
+            "files": len({M[mk]["file"] for mk in comp}),
+            "mean_fwd_ratio": round(sum(ratios) / len(ratios), 2),
+            "n_conduits": sum(1 for mk in comp if M[mk]["conduit"]),
+            "threaded": _threaded(comp, M),
             "verdict": "cohesion" if span <= 3 else "CONCERN",
-            "members": [(M[mk]["name"], surf[mk], M[mk]["cc"]) for mk in members[:8]],
+            "members": [(M[mk]["name"], M[mk]["IN"], M[mk]["OUT"], M[mk]["cc"],
+                         M[mk]["fwd_ratio"]) for mk in members],
+            "member_keys": [list(mk) for mk in members],
         })
     spans.sort(key=lambda s: (s["span"], s["links"]), reverse=True)
     heavy["spans"] = spans
 
+    inv = [m["IN"] for m in ms]
     return {
         "base": base, "n_methods": nM, "qIN": qin, "qOUT": qout,
-        "n_joints": len(joints), "net_edges_latent": latent, "net_edges_explicit": explicit,
+        "params": {"mean": round(sum(inv) / nM, 3) if nM else 0.0, "median": _median(inv),
+                   "p90": _quantile(inv, 0.9), "max": max(inv, default=0),
+                   "mean_fwd_ratio": round(sum(ratiov) / nM, 3) if nM else 0.0},
+        "n_joints": len(joints), "n_conduits": typology["conduit"]["n"],
         "typology": typology, "controls": controls, "clusters": clusters, "outliers": outliers,
         "heavy": heavy,
     }
@@ -783,53 +829,59 @@ def sinew(base: str, max_commit_size: int = 30, min_k: int = 2) -> dict:
 def _print_sinew(base: str, max_commit_size: int = 30) -> None:
     s = sinew(base, max_commit_size)
     print(f"\n=== sinew (F2 directional): {base} ===")
+    pm = s["params"]
+    print(f"    declared parameters per method: mean {pm['mean']}, median {pm['median']}, "
+          f"p90 {pm['p90']}, max {pm['max']}; mean forward ratio {pm['mean_fwd_ratio']}")
     print(f"    {s['n_methods']} methods; JOINT threshold IN>={s['qIN']} & OUT>={s['qOUT']} "
-          f"(upper tercile); {s['n_joints']} joints")
-    print("\n[1] DIRECTIONAL TYPOLOGY  (co-change degree by flow class)")
-    print(f"    {'class':>7} {'n':>6} {'mean co-change degree':>22}")
-    for c in ("joint", "source", "sink", "minor"):
+          f"(upper tercile); {s['n_joints']} joints; {s['n_conduits']} conduits "
+          f"(fwd_ratio>={CONDUIT_RATIO}, params>={CONDUIT_MIN_PARAMS})")
+    print("\n[1] TYPOLOGY  (co-change degree by flow class, and by conduit-ness)")
+    print(f"    {'class':>11} {'n':>6} {'mean co-change degree':>22}")
+    for c in ("joint", "source", "sink", "minor", "conduit", "non-conduit"):
         t = s["typology"].get(c)
         if t:
-            print(f"    {c:>7} {t['n']:>6} {t['mean_degree']:>22}")
-    print("\n[2] COMPLEXITY CONTROL  (is the conduit signal real beyond complexity?)")
+            print(f"    {c:>11} {t['n']:>6} {t['mean_degree']:>22}")
+    print("\n[2] COMPLEXITY CONTROL  (is the conduit signal real beyond complexity / size?)")
     for k, v in s["controls"].items():
         print(f"    {k:38} {'  n/a' if v is None else f'{v:+.3f}'}")
-    print(f"\n[3] SINEW NETWORK  (joints linked by co-change; latent={s['net_edges_latent']} "
-          f"co-change-only vs explicit={s['net_edges_explicit']} call edges)")
+    print("\n[3] SINEW NETWORK  (joints linked by co-change)")
     for i, c in enumerate(s["clusters"], 1):
-        print(f"    cluster {i}: {c['size']} joints, {c['edges']} links "
-              f"({c['latent']} latent / {c['explicit']} explicit), net span "
-              f"{c['net_span'][0]:+d}..{c['net_span'][1]:+d}")
-        for nm, IN, OUT, dg, cc in c["members"]:
-            print(f"        {nm[:34]:<34} IN={IN:>3} OUT={OUT:>3} net={OUT - IN:>+4} "
-                  f"deg={dg:>3} cc={cc:>3}")
+        thr = ", ".join(c["threaded"]) or "-"
+        print(f"    cluster {i}: {c['size']} joints, {c['edges']} links, net span "
+              f"{c['net_span'][0]:+d}..{c['net_span'][1]:+d}, threads: {thr}")
+        for nm, IN, OUT, dg, cc, fr in c["members"]:
+            print(f"        {nm[:30]:<30} IN={IN:>3} OUT={OUT:>3} net={OUT - IN:>+4} "
+                  f"deg={dg:>3} cc={cc:>3} fwd={fr:.2f}")
     print("\n[4] OUTLIER JOINTS  (degree x jointness; cc_pct = complexity percentile)")
     print(f"    {'score':>7} {'IN':>4} {'OUT':>4} {'net':>5} {'deg':>4} {'cc':>4} "
-          f"{'cc_pct':>6}  method")
+          f"{'cc_pct':>6} {'fwd':>5}  method")
     for o in s["outliers"]:
         print(f"    {o['score']:>7} {o['IN']:>4} {o['OUT']:>4} {o['net']:>+5} {o['degree']:>4} "
-              f"{o['cc']:>4} {o['cc_pct']:>6}  {o['name'][:38]}")
+              f"{o['cc']:>4} {o['cc_pct']:>6} {o['fwd_ratio']:>5.2f}  {o['name'][:34]}")
     h = s["heavy"]
-    print(f"\n[5] HEAVY LATENT SINEWS  (thick plumbing + co-change, NO call edge; "
-          f"{h['n_latent_pairs']} latent pairs)")
+    print(f"\n[5] HEAVY SINEWS  (thick plumbing + co-change; {h['n_pairs']} co-changing pairs)")
     print(f"    concentration: top-decile holds {h['top_decile_share'] * 100:.0f}% of sinew "
           f"mass, top-1% holds {h['top_1pct_share'] * 100:.0f}%; {h['n_heavy_madz']} heavy "
           f"(MAD-z>3.5)")
-    print(f"    {'heavy':>6} {'k':>3} {'thick':>5}  {'method A (IN/OUT/cc)':<32} "
-          f"{'method B (IN/OUT/cc)'}")
+    print(f"    {'heavy':>6} {'k':>3} {'thick':>5}  {'method A (IN/OUT/cc/fwd)':<34} "
+          f"{'method B (IN/OUT/cc/fwd)':<34} shared")
     for t in h["top"]:
-        an, ai, ao, ac = t["a"]
-        bn, bi, bo, bc = t["b"]
-        a = f"{an[:20]} {ai}/{ao}/{ac}"
-        b = f"{bn[:20]} {bi}/{bo}/{bc}"
-        print(f"    {t['heaviness']:>6} {t['k']:>3} {t['thick']:>5}  {a:<32} {b}")
+        an, ai, ao, ac, af = t["a"]
+        bn, bi, bo, bc, bf = t["b"]
+        a = f"{an[:18]} {ai}/{ao}/{ac}/{af:.2f}"
+        b = f"{bn[:18]} {bi}/{bo}/{bc}/{bf:.2f}"
+        print(f"    {t['heaviness']:>6} {t['k']:>3} {t['thick']:>5}  {a:<34} {b:<34} "
+              f"{', '.join(t['shared']) or '-'}")
     print("\n[6] SPAN DISCRIMINATOR  (components of the heavy-sinew graph; "
           "small=cohesion, big=CONCERN)")
-    print(f"    {'span':>4} {'links':>5} {'dens':>4} {'symm':>4} {'verdict':>9}  members (surf/cc)")
+    print(f"    {'span':>4} {'links':>5} {'dens':>4} {'symm':>4} {'files':>5} {'fwd':>4} "
+          f"{'verdict':>9}  threads | members (IN/OUT/cc/fwd)")
     for sp in s["heavy"]["spans"]:
-        mem = ", ".join(f"{nm[:18]}({sf}/{cc})" for nm, sf, cc in sp["members"][:5])
+        mem = ", ".join(f"{nm[:16]}({i}/{o}/{cc}/{fr:.1f})"
+                        for nm, i, o, cc, fr in sp["members"][:5])
+        thr = ",".join(sp["threaded"][:4]) or "-"
         print(f"    {sp['span']:>4} {sp['links']:>5} {sp['density']:>4} {sp['symmetry']:>4} "
-              f"{sp['verdict']:>9}  {mem}")
+              f"{sp['files']:>5} {sp['mean_fwd_ratio']:>4} {sp['verdict']:>9}  {thr} | {mem}")
 
 
 def main(argv: list[str] | None = None) -> int:

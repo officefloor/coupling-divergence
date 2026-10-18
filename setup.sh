@@ -38,9 +38,10 @@ PY
 echo "==> pinned dependencies: ${PINS[*]}"
 
 # 3. vendor the wheels into the known lib location (so replication is offline + reproducible).
-#    `pip wheel`, not `pip download`: a pin with no wheel for this Python (e.g. tree-sitter 0.23.2
-#    on 3.14) arrives as an sdist, which is built into a wheel here, while the network is up, so
-#    the offline install below never has to build anything.
+#    `pip wheel`, not `pip download`: a pin with no wheel for this Python arrives as an sdist,
+#    which is built into a wheel here, while the network is up, so the offline install below
+#    never has to build anything. (The current pins are pure Python: one wheel fits every
+#    interpreter >= 3.10.)
 echo "==> vendoring wheels into $LIB_DIR/"
 mkdir -p "$LIB_DIR"
 if ! "$VPY" -m pip wheel --quiet --wheel-dir "$LIB_DIR" "${PINS[@]}"; then

@@ -24,14 +24,14 @@ classifiers = [
     "Topic :: Software Development :: Version Control :: Git",
 ]
 # PINNED, not >=, for reproducibility. These exact versions are validated at start-up
-# (sinew/deps.py) and vendored into lib/ by setup.sh. Cognitive complexity is
-# computed by a vendored estimator (sinew/cognitive.py), not a dependency.
+# (sinew/deps.py) and vendored into lib/ by setup.sh. lizard is the one extractor, for every
+# language. Cognitive complexity is computed by a vendored estimator (sinew/cognitive.py),
+# not a dependency.
 #
 # The sample (step 2), and the loop that clones each sampled repository at its pinned commit
 # (step 3), both come from open-source-repository-sampler, so the same release draws and runs.
 dependencies = [
-    "tree-sitter==0.23.2",
-    "tree-sitter-java==0.23.5",
+    "lizard==1.23.0",
     "open-source-repository-sampler==0.1.0",
 ]
 

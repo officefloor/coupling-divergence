@@ -14,8 +14,8 @@ import sys
 
 # Exact pinned versions. Bump here AND re-run setup.sh; never loosen to `>=`.
 PINNED = {
-    "tree-sitter": "0.23.2",
-    "tree-sitter-java": "0.23.5",
+    # the one extractor: function list, parameter names and complexity, every language
+    "lizard": "1.23.0",
     # draws the sample (step 2) and runs the clone loop over it (step 3)
     "open-source-repository-sampler": "0.1.0",
 }

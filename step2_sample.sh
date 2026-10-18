@@ -15,8 +15,9 @@
 #
 # The criteria are set here, once, as code. Each flag is written out even when it equals the
 # sampler's default, so the design is readable here and recorded in the derivation:
-#   - Java only (the resolver is Java-specific), across all 3 popularity tiers, grown until 30
-#     usable repositories;
+#   - Java by default (pass --langs java,python,... for a multi-language study; the extractor
+#     covers any language lizard parses), across all 3 popularity tiers, grown until 30 usable
+#     repositories PER language;
 #   - >= 500 commits, so every repository fills step 3's mining window (--recent 500). This is a
 #     history criterion, so the sampler clones each candidate with its full history (it says so,
 #     and records it in the derivation);

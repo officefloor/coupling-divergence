@@ -1,5 +1,7 @@
-"""Sinew experiment command line — mine a repository's history and find its heavy latent
-change-coupling (sinews). Method only; no result data lives in this code.
+"""Sinew experiment command line — mine a repository's history and find its heavy
+change-coupling (sinews): thick, repeatedly co-changed bundles of methods that thread data.
+Any language lizard parses, through one extractor. Method only; no result data lives in
+this code.
 
   sinew mine         <repo> [-o base]      raw per-method shape at EVERY commit (JSONL)
   sinew analyze      <base> -o panel.csv   the derived per-(commit,method) panel as CSV

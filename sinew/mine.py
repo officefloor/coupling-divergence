@@ -2,10 +2,10 @@
 
 This is a data-collection instrument, not an analysis. For each commit on the chosen ref
 (first-parent by default, oldest first) it checks the tree out in a throwaway detached
-worktree, extracts every method's raw shape (java_extract.method_shapes: parameter count,
-complexity, and the outgoing call edges with per-call argument counts, each callee tagged
-own/external), and records which methods the commit changed, from `git diff` against the
-parent. NOTHING is aggregated or derived here: class/file rollups, in-coupling, coupling
+worktree, extracts every method's raw shape (extract.method_shapes, in any language: parameter
+names and count, complexity, the outgoing call edges with per-call argument counts and the
+parameters each call forwards unchanged, each callee tagged own/external), and records which
+methods the commit changed, from `git diff` against the parent. NOTHING is aggregated or derived here: class/file rollups, in-coupling, coupling
 divergence, the call graph and placement-over-time are all left to be reconstructed
 downstream from this raw table, so the same mine can be looked at many ways.
 
@@ -33,7 +33,7 @@ import subprocess
 import sys
 import tempfile
 
-from . import java_extract
+from . import extract
 
 
 def _git(repo: str, args: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
@@ -117,10 +117,9 @@ def mine(repo: str, out_base: str, ref: str = "HEAD", first_parent: bool = True,
          include_tests: bool = False, max_commits: int | None = None,
          recent: int | None = None) -> None:
     """Walk the history and append the raw per-method mine to <out_base>.methods.jsonl and
-    the per-commit index to <out_base>.commits.jsonl, using the tree-sitter Java resolver
-    (package-aware internal/external classification). Resumable: commits already in the index
-    are skipped."""
-    shaper = java_extract.method_shapes
+    the per-commit index to <out_base>.commits.jsonl (lizard, every language). Resumable:
+    commits already in the index are skipped."""
+    shaper = extract.method_shapes
     commits_path = out_base + ".commits.jsonl"
     methods_path = out_base + ".methods.jsonl"
     d = os.path.dirname(out_base)
