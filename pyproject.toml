@@ -26,9 +26,14 @@ classifiers = [
 # PINNED, not >=, for reproducibility. These exact versions are validated at start-up
 # (sinew/deps.py) and vendored into lib/ by setup.sh. Cognitive complexity is
 # computed by a vendored estimator (sinew/cognitive.py), not a dependency.
+#
+# The sample, and the loop that clones each sampled repository at its pinned commit, come from
+# open-source-repository-sampler, pinned to an exact commit until its first release (then pin
+# "open-source-repository-sampler==0.1.0" from PyPI).
 dependencies = [
     "tree-sitter==0.23.2",
     "tree-sitter-java==0.23.5",
+    "open-source-repository-sampler @ git+https://github.com/officefloor/open-source-repository-sampler.git@f075fd607823aa7804674ab107f5ccba4e539bd7",
 ]
 
 [project.scripts]

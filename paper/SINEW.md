@@ -133,3 +133,13 @@ implemented by the study:
 The study runs the detector across a sample of open-source Java projects, applies the outlier
 test per project, runs the predictive test, and emits the dossiers — so a sinew's value is
 qualified rather than asserted.
+
+The sample is drawn by a separate tool,
+[open-source-repository-sampler](https://github.com/officefloor/open-source-repository-sampler),
+so the projects are chosen independently of this experiment. It draws Java repositories,
+seeded and stratified by popularity tier, that have at least 500 commits (so each fills the
+mining window) and at least 50 methods, with the author's own ecosystem excluded. Each project
+is pinned to the commit its default branch was on when drawn, and the experiment mines the
+history up to exactly that commit. The criteria are in `step2_sample.sh`, and the sample's two
+files (`open-source-repository-sample.csv` and its `.derivation.json`) are published unchanged
+as ancillary data.

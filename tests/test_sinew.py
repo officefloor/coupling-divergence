@@ -127,5 +127,53 @@ class TestMineAndSinew(unittest.TestCase):
             self.assertIn("error", sinew_study.predicts(base))   # too few commits -> graceful
 
 
+class TestStudyOverSample(unittest.TestCase):
+    def test_mines_each_usable_repository_up_to_its_pinned_commit_only(self):
+        import json
+        from open_source_repository_sampler import files
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.join(d, "repo")
+            os.makedirs(repo)
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+            def git(*a):
+                return subprocess.run(["git", "-C", repo, *a], check=True, env=env,
+                                      capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            for i, (a_src, b_src) in enumerate([(A_V1, B_V1), (A_V2, B_V2)]):
+                _write(os.path.join(repo, "src/main/java/app/A.java"), a_src)
+                _write(os.path.join(repo, "src/main/java/app/B.java"), b_src)
+                git("add", "-A")
+                git("commit", "-qm", f"c{i + 1}")
+            sampled = git("rev-parse", "HEAD")
+            _write(os.path.join(repo, "src/main/java/app/C.java"),
+                   "package app;\npublic class C { int later() { return 1; } }\n")
+            git("add", "-A")
+            git("commit", "-qm", "after sampling")          # must NOT be mined
+
+            sample = os.path.join(d, "open-source-repository-sample.csv")
+            files.write_csv(sample, [
+                {"draw": 1, "status": "usable", "url": "file://" + repo, "full_name": "o/proj",
+                 "commit": sampled, "language": "java", "n_commits": 2},
+                {"draw": 2, "status": "excluded", "reason": "n_commits 3 < 500",
+                 "url": "file:///nope", "full_name": "o/short", "commit": "0" * 40,
+                 "language": "java"}])
+            out = os.path.join(d, "results")
+            rows = sinew_study.study(sample, out, recent=500)
+
+            self.assertEqual([r["full_name"] for r in rows], ["o/proj"])
+            self.assertEqual((rows[0]["commit"], rows[0]["base"]), (sampled, "o__proj"))
+            with open(os.path.join(out, "mines", "o__proj.commits.jsonl")) as fh:
+                mined = [json.loads(line)["sha"] for line in fh if line.strip()]
+            self.assertEqual(len(mined), 2)                    # the later commit is absent
+            self.assertEqual(mined[-1], sampled)
+            names = {r["name"] for r in analyze.head_rows(os.path.join(out, "mines", "o__proj"))}
+            self.assertEqual(names, {"foo", "bar"})
+            with open(os.path.join(out, "sinew-study.json")) as fh:
+                self.assertEqual([r["full_name"] for r in json.load(fh)], ["o/proj"])
+            self.assertEqual(sinew_study.study(sample, out, recent=500), rows)   # resumed
+
+
 if __name__ == "__main__":
     unittest.main()

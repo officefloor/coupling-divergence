@@ -8,7 +8,7 @@ formats — so every figure in the paper is traceable to a file in results/.
 
     python paper/make_tables.py results/<date>            # -> paper/tables.md, paper/*.tex
 
-Run the experiment first (`sinew study --repos repos.txt -o results/<date>`).
+Run the experiment first (`./step3_run.sh`, i.e. `sinew study --sample <csv> -o results/<date>`).
 """
 from __future__ import annotations
 
@@ -25,6 +25,11 @@ def _load(results_dir: str) -> list:
         return json.load(fh)
 
 
+def _project(r: dict) -> str:
+    """owner/name as sampled (older results carry only the mine's base name)."""
+    return r.get("full_name") or r["base"]
+
+
 def _fmt(v, nd=3):
     return "n/a" if v is None else f"{v:+.{nd}f}" if isinstance(v, float) else str(v)
 
@@ -36,7 +41,7 @@ def aggregate_table(rows: list) -> str:
             "|---|--:|--:|--:|--:|--:|--:|--:|--:|")
     out = [head]
     for r in sorted(rows, key=lambda r: -r.get("methods", 0)):
-        out.append(f"| {r['base']} | {r['methods']} | {r['latent']} | "
+        out.append(f"| {_project(r)} | {r['methods']} | {r['latent']} | "
                    f"{r['top_decile']:.2f} | {r['n_heavy']} | {r['clusters']} | "
                    f"{r['concern']} | {r['max_span']} | {_fmt(r.get('out_cc_partial'))} |")
     ocs = [r["out_cc_partial"] for r in rows if r.get("out_cc_partial") is not None]
@@ -54,7 +59,8 @@ def latex_aggregate(rows: list) -> str:
              r"\midrule"]
     for r in sorted(rows, key=lambda r: -r.get("methods", 0)):
         oc = r.get("out_cc_partial")
-        lines.append(f"{r['base'].replace('_', '-')} & {r['methods']} & {r['latent']} & "
+        name = _project(r).replace("_", "\\_")             # LaTeX-escape underscores
+        lines.append(f"{name} & {r['methods']} & {r['latent']} & "
                      f"{r['top_decile']:.2f} & {r['concern']} & {r['max_span']} & "
                      f"{'n/a' if oc is None else f'{oc:+.3f}'} \\\\")
     lines += [r"\bottomrule", r"\end{tabular}"]

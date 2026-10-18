@@ -2,9 +2,11 @@
 
 Three layers on top of the per-project `analyze.sinew`:
 
-  * STUDY  -- clone + mine + analyse a sample of Java repositories, apply the per-project
-    OUTLIER test, and aggregate the verdicts into one table. Resumable: a repo already mined
-    is re-used, not re-cloned.
+  * STUDY  -- mine + analyse every usable repository of a sample drawn by
+    open-source-repository-sampler, apply the per-project OUTLIER test, and aggregate the
+    verdicts into one table. The sampler's run loop clones each repository deep (every commit
+    up to its pinned commit, none after) and deletes it once mined. Resumable: a repo already
+    done is skipped, and a partly mined one resumes its mine.
   * DOSSIER -- for each flagged (CONCERN) cluster, capture its member methods -- current
     source (if the clone is present), the data they thread, their co-change commits and
     whether an indirect call path exists -- into a markdown file, so WHY the sinew exists can
@@ -13,15 +15,13 @@ Three layers on top of the per-project `analyze.sinew`:
     FUTURE commits whether sinew members accrue more change than complexity-matched peers. If
     past sinew strength predicts future volatility BEYOND complexity, the signal has value.
 
-Java only (the resolver is Java-specific). Pure standard library + git.
+Java only (the resolver is Java-specific). Standard library + git, plus
+open-source-repository-sampler for the sample and its run loop.
 """
 from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
-import tempfile
 from collections import Counter, defaultdict
 
 from . import analyze as A, mine as mine_mod
@@ -73,11 +73,11 @@ def aggregate_row(base: str) -> dict:
 
 def _print_aggregate(rows: list) -> None:
     print("\nSINEW STUDY — per project")
-    print(f"  {'project':22} {'meth':>6} {'latent':>6} {'topdec':>6} {'heavy':>5} "
+    print(f"  {'project':36} {'meth':>6} {'latent':>6} {'topdec':>6} {'heavy':>5} "
           f"{'clust':>5} {'concern':>7} {'maxspan':>7} {'OUT|cc':>7}")
     for r in rows:
         oc = r["out_cc_partial"]
-        print(f"  {r['base']:22} {r['methods']:>6} {r['latent']:>6} "
+        print(f"  {r.get('full_name') or r['base']:36} {r['methods']:>6} {r['latent']:>6} "
               f"{r['top_decile']:>6.2f} {r['n_heavy']:>5} {r['clusters']:>5} "
               f"{r['concern']:>7} {r['max_span']:>7} "
               f"{'   n/a' if oc is None else f'{oc:>+7.3f}'}")
@@ -292,55 +292,62 @@ def _print_predicts(bases: list, split: float = 0.7) -> None:
 # ---------------------------------------------------------------------------
 # the study orchestrator: clone + mine + analyse a sample
 # ---------------------------------------------------------------------------
-def _repo_name(url: str) -> str:
-    return os.path.basename(url.rstrip("/")).removesuffix(".git")
+def _mine_name(full_name: str) -> str:
+    """A mine's file name: owner__name, so two owners' same-named repositories never collide."""
+    return full_name.replace("/", "__")
 
 
-def _read_repos(path: str) -> list:
-    repos = []
-    for line in open(path):
-        line = line.split("#")[0].strip()
-        if line:
-            repos.append(line.split()[0])
-    return repos
+def study(sample_path: str, out_dir: str, recent: int = 500,
+          emit_dossiers: bool = True) -> list:
+    """Mine the recent history of every usable repository of the sample (Java resolver),
+    analyse its sinews, emit dossiers for its CONCERN clusters (with member source and commit
+    messages, read from the clone while it exists), then aggregate and run the predictive test.
 
+    open-source-repository-sampler's run loop does the cloning: deep, at each repository's
+    pinned commit, so the mined history ends exactly where the sample says, and the clone is
+    deleted afterwards. Rows are written to sinew-study.json after each repository; the run log
+    lets a re-run skip repositories already done."""
+    from open_source_repository_sampler import for_each, read_sample
 
-def study(repos_file: str, out_dir: str, recent: int = 500, keep: bool = False,
-          emit_dossiers: bool = True) -> None:
-    """Clone each repo, mine its recent history (Java resolver), analyse the sinews, aggregate
-    and (optionally) emit dossiers. Resumable: a repo whose mine already exists is re-used."""
     mines_dir = os.path.join(out_dir, "mines")
     os.makedirs(mines_dir, exist_ok=True)
-    rows = []
-    for url in _read_repos(repos_file):
-        name = _repo_name(url)
-        base = os.path.join(mines_dir, name)
-        if not os.path.exists(base + ".commits.jsonl"):
-            work = tempfile.mkdtemp(prefix="sinew-clone-")
-            clone = os.path.join(work, name)
-            print(f"cloning {url} ...", flush=True)
-            r = subprocess.run(["git", "clone", "--quiet", url, clone],
-                               capture_output=True, text=True)
-            if r.returncode != 0:
-                print(f"  clone failed: {r.stderr.strip()[:200]}")
-                shutil.rmtree(work, ignore_errors=True)
-                continue
-            try:
-                mine_mod.mine(clone, base, recent=recent)
-            finally:
-                shutil.rmtree(work, ignore_errors=True)
+    study_path = os.path.join(out_dir, "sinew-study.json")
+    rows: dict = {}
+    if os.path.exists(study_path):
+        with open(study_path) as fh:
+            rows = {r["full_name"]: r for r in json.load(fh) if r.get("full_name")}
+
+    def save() -> None:
+        with open(study_path, "w") as fh:
+            json.dump(list(rows.values()), fh, indent=2)
+
+    def experiment(repo) -> None:
+        base = os.path.join(mines_dir, _mine_name(repo.full_name))
+        mine_mod.mine(repo.path, base, recent=recent)
         try:
-            rows.append(aggregate_row(base))
-        except Exception as e:  # a mine can be empty (non-Java repo); record and move on
-            print(f"  analyse failed for {name}: {e}")
-        if emit_dossiers and rows and rows[-1]["base"] == name and rows[-1]["concern"]:
-            n = dossier(base, os.path.join(out_dir, "dossiers"))
-            print(f"  {name}: {rows[-1]['concern']} concern clusters, {n} dossiers")
-    _print_aggregate(rows)
-    with open(os.path.join(out_dir, "sinew-study.json"), "w") as fh:
-        json.dump([{k: v for k, v in r.items() if k != "flags"} for r in rows], fh, indent=2)
-    _print_predicts([os.path.join(mines_dir, _repo_name(u))
-                     for u in _read_repos(repos_file)
-                     if os.path.exists(os.path.join(mines_dir, _repo_name(u) + ".commits.jsonl"))])
-    print(f"\nwrote {out_dir}/sinew-study.json" + ("" if not emit_dossiers else
+            row = aggregate_row(base)
+        except Exception as e:  # a mine can be empty (no Java methods); record and move on
+            print(f"  analyse failed for {repo.full_name}: {e}")
+            return
+        # The per-cluster flags feed the dossiers only; the stored row is the summary.
+        rows[repo.full_name] = {"full_name": repo.full_name, "url": repo.url,
+                                "commit": repo.commit,
+                                **{k: v for k, v in row.items() if k != "flags"}}
+        save()
+        if emit_dossiers and row["concern"]:
+            n = dossier(base, os.path.join(out_dir, "dossiers"), repo=repo.path)
+            print(f"  {repo.full_name}: {row['concern']} concern clusters, {n} dossiers")
+
+    usable = read_sample(sample_path)
+    print(f"sinew study: {len(usable)} usable repositories in {sample_path}, mining the most "
+          f"recent {recent} commits of each (deep clone at its pinned commit) -> {out_dir}",
+          flush=True)
+    for_each(sample_path, experiment, deep=True,
+             run_log=os.path.join(out_dir, "run-log.jsonl"))
+    ordered = [rows[r["full_name"]] for r in usable if r["full_name"] in rows]
+    _print_aggregate(ordered)
+    save()
+    _print_predicts([os.path.join(mines_dir, _mine_name(r["full_name"])) for r in ordered])
+    print(f"\nwrote {study_path}" + ("" if not emit_dossiers else
           f" and dossiers in {out_dir}/dossiers/"))
+    return ordered

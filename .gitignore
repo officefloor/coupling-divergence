@@ -15,6 +15,6 @@ __pycache__/
 *.methods.jsonl
 *.commits.jsonl
 
-# Paper tables are generated from results/ by paper/make_tables.py (./step3_analyse.sh).
+# Paper tables are generated from results/ by paper/make_tables.py (./step4_analyse.sh).
 /paper/tables.md
 /paper/aggregate.tex

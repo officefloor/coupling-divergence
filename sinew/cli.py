@@ -6,12 +6,14 @@ change-coupling (sinews). Method only; no result data lives in this code.
   sinew relate       <base>                complexity ↔ coupling ↔ cohesion relationships
   sinew tangle       <base>                edge-weight ladder + the dynamic (param-growth) test
   sinew sinew        <base>                the directional sinew report + span verdict
-  sinew study        --repos f [-o dir]    clone+mine+analyse a sample; outliers, dossiers, predict
+  sinew study        [--sample f] [-o dir] mine+analyse a sample; outliers, dossiers, predict
   sinew predict      <base ...>            does PAST sinew predict FUTURE change (beyond complexity)?
   sinew dossier      <base> [--repo r]     inspection dossiers for a mine's CONCERN clusters
 
-All output data is written under the chosen results directory (default results/<date>), which
-is git-ignored; nothing is computed outside this code.
+The sample (open-source-repository-sample.csv) is drawn by open-source-repository-sampler
+(./step2_sample.sh), whose run loop also clones each repository for `study`. All output data is
+written under the chosen results directory (default results/<date>), which is git-ignored;
+nothing is computed outside this code.
 """
 from __future__ import annotations
 
@@ -21,6 +23,9 @@ import os
 import sys
 
 from . import deps
+
+
+DEFAULT_SAMPLE = os.path.join("sample", "open-source-repository-sample.csv")
 
 
 def _results_default() -> str:
@@ -65,12 +70,15 @@ def main(argv: list[str] | None = None) -> int:
     sw.add_argument("base", help="mine base path")
     sw.add_argument("--max-commit-size", type=int, default=30)
 
-    ss = sub.add_parser("study", help="run across a sample of repos: clone, mine, flag "
-                        "outliers, aggregate, emit dossiers + the predictive test")
+    ss = sub.add_parser("study", help="run across a sample of repos: mine, flag outliers, "
+                        "aggregate, emit dossiers + the predictive test")
     ss.add_argument("-o", "--out", default=None, help="results directory (default results/<date>)")
-    ss.add_argument("--repos", default=None, help="file with one repo URL per line (clone+mine)")
+    ss.add_argument("--sample", default=DEFAULT_SAMPLE,
+                    help="the sample CSV from open-source-repository-sampler (default "
+                         "sample/open-source-repository-sample.csv); each usable repository is "
+                         "cloned deep at its pinned commit, mined, then deleted")
     ss.add_argument("--bases", nargs="*", default=None,
-                    help="existing mine bases to aggregate instead of cloning")
+                    help="existing mine bases to aggregate instead of mining the sample")
     ss.add_argument("--recent", type=int, default=500, help="mine the most recent N commits")
     ss.add_argument("--no-dossiers", action="store_true")
 
@@ -119,10 +127,11 @@ def main(argv: list[str] | None = None) -> int:
                 for b in args.bases:
                     sinew_mod.dossier(b, os.path.join(out, "dossiers"))
             sinew_mod._print_predicts(args.bases)
-        elif args.repos:
-            sinew_mod.study(args.repos, out, args.recent, emit_dossiers=not args.no_dossiers)
+        elif os.path.isfile(args.sample):
+            sinew_mod.study(args.sample, out, args.recent, emit_dossiers=not args.no_dossiers)
         else:
-            print("study needs --repos <file> or --bases <base ...>")
+            print(f"no sample at {args.sample}: draw one with ./step2_sample.sh, or pass "
+                  f"--sample <csv> (or --bases <base ...> to aggregate existing mines)")
             return 2
         return 0
     if args.cmd == "predict":
