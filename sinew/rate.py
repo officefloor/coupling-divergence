@@ -37,6 +37,10 @@ DEFAULT_MODELS = ["claude-opus-5-5"]
 DEFAULT_EFFORT = "high"
 DEFAULT_RUNS = 1
 CONFIG = "rater.json"          # the chosen raters, written by `sinew rate --check --save`
+HUMAN_CSV = "human-ratings.csv"   # human ratings of the same blind dossiers, scored beside the models
+# The qualification gate on the planted history: a rater must say "consolidate" for at least
+# this share of the planted chains and at most this share of the planted decoys.
+GATE = {"concern_min": 0.8, "decoy_max": 0.2}
 
 
 def load_config(path: str | None = None) -> dict | None:
@@ -164,6 +168,57 @@ def claude_caller(effort: str = DEFAULT_EFFORT):
     return call
 
 
+def chance_pass(n_concern: int, n_decoy: int, gate: dict = GATE) -> float:
+    """The probability that a rater deciding by coin flip passes the gate: P(Bin(n_c, 1/2)
+    >= ceil(concern_min * n_c)) * P(Bin(n_d, 1/2) <= floor(decoy_max * n_d))."""
+    import math
+    from math import comb
+    if not n_concern or not n_decoy:
+        return 1.0
+    kc = math.ceil(gate["concern_min"] * n_concern - 1e-9)
+    kd = math.floor(gate["decoy_max"] * n_decoy + 1e-9)
+    pc = sum(comb(n_concern, i) for i in range(kc, n_concern + 1)) / 2 ** n_concern
+    pd = sum(comb(n_decoy, i) for i in range(0, kd + 1)) / 2 ** n_decoy
+    return pc * pd
+
+
+def human_template(dossier_dir: str) -> str:
+    """Write <dossier_dir>/human-ratings.csv with one row per dossier for a human rater to
+    fill in (decision: consolidate | leave; confidence 1-5; rater: an initial or id). Several
+    raters append rows under their own id. Scored by `sinew rate --score` as raters named
+    human:<id>."""
+    import csv
+    path = os.path.join(dossier_dir, HUMAN_CSV)
+    if os.path.exists(path):
+        return path
+    with open(path, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["file", "rater", "decision", "confidence"])
+        for name in dossier_files(dossier_dir):
+            w.writerow([name, "", "", ""])
+    return path
+
+
+def _human_records(dossier_dir: str, prefix: str = "") -> list:
+    import csv
+    path = os.path.join(dossier_dir, HUMAN_CSV)
+    if not os.path.exists(path):
+        return []
+    recs = []
+    with open(path, newline="") as fh:
+        for row in csv.DictReader(fh):
+            d = (row.get("decision") or "").strip().lower()
+            if d not in ("consolidate", "leave"):
+                continue
+            try:
+                conf = int(row.get("confidence") or 0) or None
+            except ValueError:
+                conf = None
+            recs.append({"file": prefix + row["file"], "model": f"human:{row.get('rater') or '?'}",
+                         "run": 1, "decision": d, "confidence": conf, "cause": "cannot tell"})
+    return recs
+
+
 def _done(path: str) -> set:
     done = set()
     if os.path.exists(path):
@@ -283,11 +338,22 @@ def _load_dir(dossier_dir: str, prefix: str = ""):
                     r = json.loads(line)
                     r["file"] = prefix + r["file"]
                     recs.append(r)
+    recs += _human_records(dossier_dir, prefix)
     return key, recs
 
 
+def _rater_id(r: dict) -> str:
+    """The rater a record is scored under: the model that actually served it. A rating the
+    server-side fallback produced is scored as its own rater (`requested -> served`), never
+    mixed into the requested model's rates."""
+    served = r.get("served_by")
+    if served and served != r["model"]:
+        return f"{r['model']} -> {served}"
+    return r["model"]
+
+
 def _scorecard(key: dict, recs: list) -> dict:
-    by: dict = defaultdict(list)                  # (file, model) -> decisions over runs
+    by: dict = defaultdict(list)                  # (file, rater) -> decisions over runs
     errors = Counter()
     conf: dict = defaultdict(list)
     causes: dict = defaultdict(Counter)
@@ -295,10 +361,11 @@ def _scorecard(key: dict, recs: list) -> dict:
         if r.get("error"):
             errors[r["model"]] += 1
             continue
-        by[(r["file"], r["model"])].append(r["decision"])
+        rid = _rater_id(r)
+        by[(r["file"], rid)].append(r["decision"])
         truth = key.get(r["file"], {}).get("truth")
-        conf[(r["model"], truth)].append(r["confidence"])
-        causes[(r["model"], truth)][r["cause"]] += 1
+        conf[(rid, truth)].append(r["confidence"])
+        causes[(rid, truth)][r["cause"]] += 1
     models = sorted({m for _, m in by})
     truths = sorted({k["truth"] for k in key.values()})
     maj = {(f, m): _majority(d) for (f, m), d in by.items()}
@@ -317,7 +384,13 @@ def _scorecard(key: dict, recs: list) -> dict:
         row["self_consistency"] = (round(sum(1 for d in multi if len(set(d)) == 1) / len(multi), 3)
                                    if multi else None)
         row["errors"] = errors.get(m, 0)
-        rc, rd = row.get("concern", {}).get("rate"), row.get("decoy", {}).get("rate")
+        rc = row.get("concern", {}).get("rate")
+        rd = row.get("decoy", {}).get("rate")
+        rk = row.get("contract", {}).get("rate")
+        # PRIMARY: concern vs contract tests the span rule (both heavy, both threaded);
+        # concern vs decoy tests whether threading itself is seen (secondary)
+        row["concern_minus_contract"] = (round(rc - rk, 3)
+                                         if rc is not None and rk is not None else None)
         row["concern_minus_decoy"] = round(rc - rd, 3) if rc is not None and rd is not None else None
         per[m] = row
     agreement = {}
@@ -338,10 +411,12 @@ def _print_card(card: dict, log) -> None:
     log(f"\nSCORECARD  {card['dossiers']} dossiers ({card['truths']}), {card['rated']} rated")
     for m, row in card["per_model"].items():
         parts = [f"{t}: {row[t]['consolidate']}/{row[t]['n']}" for t in truths]
-        log(f"  {m:22} {'  '.join(parts)}  concern-decoy={row['concern_minus_decoy']}  "
+        log(f"  {m:22} {'  '.join(parts)}  concern-contract={row['concern_minus_contract']}  "
+            f"concern-decoy={row['concern_minus_decoy']}  "
             f"self-consistency={row['self_consistency']}  errors={row['errors']}")
     for k, v in card["agreement"].items():
-        log(f"  {k}: kappa={v['kappa']} (n={v['n']})")
+        log(f"  {k}: kappa={v['kappa']} (n={v['n']})  [agreement between raters; two models of "
+            "one vendor are not independent raters]")
 
 
 def score(dossier_dir: str, log=print) -> dict:
@@ -384,15 +459,19 @@ def score_many(dirs: list, out_path: str, log=print) -> dict:
 # ---------------------------------------------------------------------------
 def check(work_dir: str, models: list | None = None, runs: int | None = None,
           effort: str | None = None, call=None, log=print) -> dict:
-    """Build the planted history (sinew/planted.py), mine it, write its blind dossiers, have
-    the raters rate them, and score. Passes when every model rates the planted chain
-    "consolidate" more often than the decoy and no rating errored. Returns the scorecard
+    """Build the planted history (sinew/planted.py), mine it, write its blind dossiers (the
+    planted chains, contracts and matched decoys), have the raters rate them, and score.
+    Passes when every model rates at least GATE[concern_min] of the chains and at most
+    GATE[decoy_max] of the decoys "consolidate", with no errors. The probability that a
+    coin-flip rater passes the same gate is computed and reported. Returns the scorecard
     with a `passed` flag and the raters used."""
     from . import analyze as A, mine as mine_mod, planted, sinew_study
     models = models or DEFAULT_MODELS
     runs = runs or DEFAULT_RUNS
     effort = effort or DEFAULT_EFFORT
+    import shutil
     os.makedirs(work_dir, exist_ok=True)
+    shutil.rmtree(os.path.join(work_dir, "repo"), ignore_errors=True)   # a fresh plant every run
     repo, _ = planted.plant(os.path.join(work_dir, "repo"))
     base = os.path.join(work_dir, "mine")
     for suffix in (".methods.jsonl", ".commits.jsonl"):
@@ -410,17 +489,26 @@ def check(work_dir: str, models: list | None = None, runs: int | None = None,
         f"-> {out}")
     rate(out, models, runs, call=call, effort=effort, log=log)
     card = score(out, log=log)
-    passed = bool(card["per_model"]) and all(
-        (row.get("concern_minus_decoy") or 0) > 0 and row["errors"] == 0
-        for row in card["per_model"].values()) and set(card["per_model"]) == set(models)
-    card.update({"passed": passed, "models": models, "runs": runs, "effort": effort,
+    n_c, n_d = card["truths"].get("concern", 0), card["truths"].get("decoy", 0)
+
+    def ok(row):
+        rc = (row.get("concern") or {}).get("rate")
+        rd = (row.get("decoy") or {}).get("rate")
+        return (rc is not None and rd is not None and rc >= GATE["concern_min"]
+                and rd <= GATE["decoy_max"] and row["errors"] == 0)
+    passed = (bool(card["per_model"]) and set(card["per_model"]) == set(models)
+              and all(ok(row) for row in card["per_model"].values()))
+    chance = chance_pass(n_c, n_d)
+    card.update({"passed": passed, "gate": GATE, "chance_pass": round(chance, 4),
+                 "models": models, "runs": runs, "effort": effort,
                  "work_dir": os.path.abspath(work_dir)})
+    gate_txt = (f"gate: >= {GATE['concern_min']:.0%} of {n_c} planted chains and <= "
+                f"{GATE['decoy_max']:.0%} of {n_d} matched decoys rated 'consolidate'; a "
+                f"coin-flip rater passes with probability {chance:.3f}")
     if passed:
-        log("\nRATER CHECK PASSED: each model told the planted chain from the decoy. Read the "
-            f"justifications in {os.path.join(out, 'ratings.jsonl')}.")
-    else:
-        log("\nRATER CHECK FAILED: every model must rate the planted chain 'consolidate' more "
-            "often than the decoy, with no errors. Try another model, more runs, or higher "
-            "effort; the ratings and justifications are in "
+        log(f"\nRATER CHECK PASSED ({gate_txt}). Read the justifications in "
             f"{os.path.join(out, 'ratings.jsonl')}.")
+    else:
+        log(f"\nRATER CHECK FAILED ({gate_txt}). Try another model, more runs, or higher "
+            f"effort; the ratings and justifications are in {os.path.join(out, 'ratings.jsonl')}.")
     return card

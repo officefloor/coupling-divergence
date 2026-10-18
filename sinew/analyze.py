@@ -31,6 +31,8 @@ import random
 import sys
 from collections import Counter, defaultdict
 
+from .extract_common import GUARD_CALLEES
+
 # Every analysis threshold, in one place, recorded with the results.
 PARAMS = {
     "max_commit_size": 30,     # a commit touching more methods than this counts for frequency, not pairs
@@ -44,6 +46,9 @@ PARAMS = {
     "bootstrap": 200,          # bootstrap resamples for the partial-correlation intervals
     "seed": 1,
     "split": 0.7,              # history cut for the predictive test
+    "sesoi": 0.1,              # smallest partial correlation of interest (H1 / H3 decision)
+    "heavy_q": 0.9,            # sensitivity: heavy = top decile of bond mass (min mass 4)
+    "heavy_q_min_mass": 4,
 }
 
 
@@ -319,14 +324,28 @@ def _partial_spearman(x: list, y: list, z: list):
     return partial_spearman(x, y, [z])
 
 
-def bootstrap_ci(stat, n: int, B: int, seed: int = 1, level: float = 0.95):
-    """Percentile bootstrap interval of `stat(indices)` over resamples of range(n)."""
+def bootstrap_ci(stat, n: int, B: int, seed: int = 1, level: float = 0.95, clusters=None):
+    """Percentile bootstrap interval of `stat(indices)` over resamples of range(n). With
+    `clusters` (one label per index, e.g. the method's file) whole clusters are resampled,
+    so methods of one file -- edited, and shaped, together -- are not treated as independent
+    draws."""
     if n < 4 or B <= 0:
         return None
     rng = random.Random(seed)
+    groups = None
+    if clusters is not None:
+        by: dict = defaultdict(list)
+        for i, c in enumerate(clusters):
+            by[c].append(i)
+        groups = list(by.values())
+        if len(groups) < 4:
+            groups = None
     vals = []
     for _ in range(B):
-        idx = [rng.randrange(n) for _ in range(n)]
+        if groups is None:
+            idx = [rng.randrange(n) for _ in range(n)]
+        else:
+            idx = [i for _ in range(len(groups)) for i in groups[rng.randrange(len(groups))]]
         v = stat(idx)
         if v is not None:
             vals.append(v)
@@ -361,6 +380,81 @@ def pool_correlations(rs: list, ns: list) -> dict | None:
             "ci95": [round(back(zre - 1.96 * se), 3), round(back(zre + 1.96 * se), 3)],
             "tau2": round(tau2, 4), "i2": round(i2, 3), "k": k,
             "positive": sum(1 for zi in z if zi > 0)}
+
+
+def pool_estimates(ests: list, ses: list) -> dict | None:
+    """DerSimonian-Laird random-effects pooling of raw estimates with standard errors (used
+    for the H3 increment, a difference of two partial correlations)."""
+    pairs = [(e, s) for e, s in zip(ests, ses) if e is not None and s and s > 0]
+    if len(pairs) < 2:
+        return None
+    w = [1 / s ** 2 for _, s in pairs]
+    e = [x for x, _ in pairs]
+    k = len(e)
+    ebar = sum(wi * ei for wi, ei in zip(w, e)) / sum(w)
+    q = sum(wi * (ei - ebar) ** 2 for wi, ei in zip(w, e))
+    c = sum(w) - sum(wi * wi for wi in w) / sum(w)
+    tau2 = max(0.0, (q - (k - 1)) / c) if c > 0 else 0.0
+    ws = [1 / (1 / wi + tau2) for wi in w]
+    ere = sum(wi * ei for wi, ei in zip(ws, e)) / sum(ws)
+    se = (1 / sum(ws)) ** 0.5
+    return {"estimate": round(ere, 3), "ci95": [round(ere - 1.96 * se, 3), round(ere + 1.96 * se, 3)],
+            "tau2": round(tau2, 5), "k": k, "positive": sum(1 for x in e if x > 0)}
+
+
+def pool_log_ratios(cells: list) -> dict | None:
+    """Inverse-variance random-effects pooling of risk ratios from (a, n1, b, n2) cells:
+    a of n1 'exposed' and b of n2 'unexposed' had the outcome. Haldane 0.5 correction when a
+    cell is empty. Returns the pooled ratio with its interval."""
+    import math
+    ests, ses = [], []
+    for a, n1, b, n2 in cells:
+        if not n1 or not n2:
+            continue
+        if min(a, b, n1 - a, n2 - b) == 0:
+            a, b, n1, n2 = a + 0.5, b + 0.5, n1 + 1, n2 + 1
+        ests.append(math.log((a / n1) / (b / n2)))
+        ses.append((1 / a - 1 / n1 + 1 / b - 1 / n2) ** 0.5)
+    pooled = pool_estimates(ests, ses)
+    if not pooled:
+        return None
+    return {"ratio": round(math.exp(pooled["estimate"]), 3),
+            "ci95": [round(math.exp(v), 3) for v in pooled["ci95"]],
+            "tau2": pooled["tau2"], "k": pooled["k"], "above_one": pooled["positive"]}
+
+
+def _norm_cdf(z: float) -> float:
+    import math
+    return 0.5 * (1 + math.erf(z / 2 ** 0.5))
+
+
+def _norm_ppf(p: float) -> float:
+    """Inverse normal CDF by bisection (pure python, more than enough precision)."""
+    lo, hi = -40.0, 40.0
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        if _norm_cdf(mid) < p:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def stouffer(ps: list) -> dict | None:
+    """Stouffer's combined one-sided p over projects (equal weights). Permutation p-values
+    are bounded below by 1/(B+1), so none is zero."""
+    ps = [p for p in ps if p is not None]
+    if not ps:
+        return None
+    zs = [_norm_ppf(1 - min(max(p, 1e-12), 1 - 1e-12)) for p in ps]
+    z = sum(zs) / len(zs) ** 0.5
+    return {"z": round(z, 3), "p": round(1 - _norm_cdf(z), 6), "k": len(ps)}
+
+
+def binom_tail(k: int, n: int, p0: float) -> float:
+    """P(X >= k) for X ~ Binomial(n, p0), exactly."""
+    from math import comb
+    return sum(comb(n, i) * p0 ** i * (1 - p0) ** (n - i) for i in range(k, n + 1)) if n else 1.0
 
 
 def _quantile(xs: list, q: float) -> float:
@@ -438,6 +532,7 @@ def commit_window(commits: list, max_commit_size: int) -> dict:
     times = [c["atime"] for c in commits if c.get("atime")]
     return {
         "n_commits": len(commits),
+        "n_informative": sum(1 for s in sizes if s >= 1),
         "days": round((max(times) - min(times)) / 86400, 1) if len(times) > 1 else 0.0,
         "median_size": _median(sizes), "p90_size": _quantile(sizes, 0.9),
         "n_multi": len(multi), "n_capped": len(capped),
@@ -468,13 +563,114 @@ def curveball(sets: list, rng: random.Random, trades: int) -> None:
         sets[j] = both | set(pool[len(a_only):])
 
 
+def curveball_stratified(sets: list, rng: random.Random, trades: int, file_of: dict) -> None:
+    """Curveball trades WITHIN FILES: each trade picks a file and two commits that both touch
+    it, and re-deals that file's methods between them. Every commit keeps its size per file
+    (so same-file co-change, the strongest regularity in any history, is preserved), every
+    method keeps its change frequency, and only WHICH methods of a file change together is
+    randomised. This is the null that asks whether threading picks out the co-changing
+    pairs, rather than whether co-change concentrates at all."""
+    by_file: dict = defaultdict(list)
+    for i, s in enumerate(sets):
+        for f in {file_of.get(m, m[0]) for m in s}:
+            by_file[f].append(i)
+    files = [f for f, cs in by_file.items() if len(cs) >= 2]
+    if not files:
+        return
+    for _ in range(trades):
+        f = files[rng.randrange(len(files))]
+        cs = by_file[f]
+        i, j = cs[rng.randrange(len(cs))], cs[rng.randrange(len(cs))]
+        if i == j:
+            continue
+        A, B = sets[i], sets[j]
+        Af = {m for m in A if file_of.get(m, m[0]) == f}
+        Bf = {m for m in B if file_of.get(m, m[0]) == f}
+        a_only, b_only = Af - Bf, Bf - Af
+        if not a_only or not b_only:
+            continue
+        pool = list(a_only | b_only)
+        rng.shuffle(pool)
+        both = Af & Bf
+        sets[i] = (A - Af) | both | set(pool[:len(a_only)])
+        sets[j] = (B - Bf) | both | set(pool[len(a_only):])
+
+
 # ---------------------------------------------------------------------------
 # the sinew analysis
 # ---------------------------------------------------------------------------
-def thread_keys(a: dict, b: dict) -> set:
-    """The parameter keys threaded between two methods: a key one of them FORWARDS that the
-    other DECLARES -- the data one sends and the other consumes."""
-    return (a["fwd_keys"] & b["param_keys"]) | (b["fwd_keys"] & a["param_keys"])
+def _resolve(M: dict, by_name: dict, src: tuple, callee: str) -> list:
+    """The method keys a call to `callee` from `src` may target: the methods of that name in
+    the caller's own file if there are any, else every method of that name in the project.
+    Lexical resolution, so a common name is ambiguous; same-file first keeps it honest."""
+    cands = by_name.get(callee, ())
+    same = [mk for mk in cands if mk[0] == src[0] and mk != src]
+    return same or [mk for mk in cands if mk != src]
+
+
+def thread_links(M: dict, max_hops: int = 0) -> dict:
+    """frozenset({a, b}) -> {"keys": set, "hops": int}: the parameter keys THREADED between
+    two methods. Key K threads from a to b when a forwards K to a call that resolves to b and
+    b declares K (hops 1), or when it reaches b along a chain of such hops in which every
+    intermediary declares K and forwards it on (hops > 1): the data one sends and the other
+    consumes, directly or through a conduit. A key both merely declare, or that a forwards
+    somewhere else, is NOT a link. `max_hops` 0 = unbounded."""
+    by_name: dict = defaultdict(list)
+    for mk, m in M.items():
+        by_name[m["name"]].append(mk)
+    # per key: a -> the methods it hands that key to
+    step: dict = defaultdict(lambda: defaultdict(set))
+    for mk, m in M.items():
+        for callee, keys in m["fwd_to"].items():
+            for tgt in _resolve(M, by_name, mk, callee):
+                for key in keys:
+                    if key in M[tgt]["param_keys"]:
+                        step[key][mk].add(tgt)
+    links: dict = {}
+    for key, adj in step.items():
+        for src in adj:
+            seen = {src: 0}
+            frontier = [src]
+            while frontier:
+                nxt = []
+                for u in frontier:
+                    d = seen[u] + 1
+                    if max_hops and d > max_hops:
+                        continue
+                    for v in adj.get(u, ()):
+                        if v not in seen:
+                            seen[v] = d
+                            nxt.append(v)
+                frontier = nxt
+            for v, d in seen.items():
+                if v == src:
+                    continue
+                pr = frozenset((src, v))
+                ln = links.setdefault(pr, {"keys": set(), "hops": d})
+                ln["keys"].add(key)
+                ln["hops"] = min(ln["hops"], d)
+    return links
+
+
+def thread_keys(links: dict, a: tuple, b: tuple) -> set:
+    """The keys threaded between two methods (empty if they are not thread-linked)."""
+    ln = links.get(frozenset((a, b)))
+    return ln["keys"] if ln else set()
+
+
+def call_pairs(M: dict) -> set:
+    """Unordered pairs (a, b) where a calls b by resolved name (any internal call, forwarding
+    or not): the structural call coupling that thread links are a subset of, and the
+    counterfactual the paper compares them against."""
+    by_name: dict = defaultdict(list)
+    for mk, m in M.items():
+        by_name[m["name"]].append(mk)
+    out: set = set()
+    for mk, m in M.items():
+        for callee in m["calls_to"]:
+            for tgt in _resolve(M, by_name, mk, callee):
+                out.add(frozenset((mk, tgt)))
+    return out
 
 
 def _label(key: str) -> str:
@@ -489,19 +685,25 @@ def methods_at_head(rows: list) -> dict:
     for r in rows:
         mk = (r["file"], r["qualname"])
         fwd_to: dict = defaultdict(set)
+        calls_to: set = set()
         key_of = dict(zip(r.get("param_names", []), r.get("param_keys", [])))
         for c in r.get("calls", []):
-            if c.get("kind") == "internal" and c.get("fwd"):
+            if c.get("kind") != "internal" or c["callee"] in GUARD_CALLEES:
+                continue
+            calls_to.add(c["callee"])
+            if c.get("fwd"):
                 fwd_to[c["callee"]] |= {key_of.get(n, "N:" + n) for n in c["fwd"]}
         cur = {
             "IN": r.get("params", 0),
             "OUT": r.get("out_args_own", 0) + r.get("out_args_ext", 0),
             "fwd_args": r.get("fwd_args", 0), "fwd_ratio": r.get("fwd_ratio", 0.0),
             "fwd_ratio_any": r.get("fwd_ratio_any", 0.0),
+            "fwd_ratio_strict": r.get("fwd_ratio_strict", 0.0),
+            "n_calls_own": r.get("n_calls_own", 0),
             "fwd_keys": set(r.get("fwd_keys", [])),
             "param_keys": set(r.get("param_keys", [])),
             "param_names": set(r.get("param_names", [])),
-            "fwd_to": fwd_to,
+            "fwd_to": fwd_to, "calls_to": calls_to,
             "cc": r.get("cc", 0), "nloc": r.get("nloc", 0),
             "name": r["name"], "qualname": r["qualname"], "file": r["file"],
             "n_overloads": 1,
@@ -510,9 +712,10 @@ def methods_at_head(rows: list) -> dict:
         if m is None:
             M[mk] = cur
             continue
-        for k in ("IN", "OUT", "fwd_args", "fwd_ratio", "fwd_ratio_any", "cc", "nloc"):
+        for k in ("IN", "OUT", "fwd_args", "fwd_ratio", "fwd_ratio_any", "fwd_ratio_strict",
+                  "n_calls_own", "cc", "nloc"):
             m[k] = max(m[k], cur[k])
-        for k in ("fwd_keys", "param_keys", "param_names"):
+        for k in ("fwd_keys", "param_keys", "param_names", "calls_to"):
             m[k] |= cur[k]
         for callee, keys in fwd_to.items():
             m["fwd_to"][callee] |= keys
@@ -520,29 +723,30 @@ def methods_at_head(rows: list) -> dict:
     return M
 
 
-def _bonds(pair: Counter, change_count: Counter, M: dict, min_k: int) -> tuple[list, int]:
+def _bonds(pair: Counter, change_count: Counter, M: dict, min_k: int,
+           links: dict) -> tuple[list, int]:
     """(bonds, n_unthreaded). A bond is a co-changing pair (k >= min_k, both alive at HEAD)
-    with at least one threaded key; n_unthreaded counts the co-changing pairs that thread
-    nothing (co-change without data flow, which this method does not call a sinew)."""
+    that is thread-linked (see thread_links); n_unthreaded counts the co-changing pairs that
+    thread nothing (co-change without data flow, which this method does not call a sinew)."""
     bonds, unthreaded = [], 0
     for pr, k in pair.items():
         if k < min_k:
             continue
         a, b = tuple(pr)
-        ma, mb = M.get(a), M.get(b)
-        if ma is None or mb is None:
+        if a not in M or b not in M:
             continue
-        keys = thread_keys(ma, mb)
-        if not keys:
+        ln = links.get(pr)
+        if not ln:
             unthreaded += 1
             continue
+        keys = ln["keys"]
         thick = len(keys)
         fa, fb = change_count.get(a, k), change_count.get(b, k)
         bonds.append({
             "mass": k * thick, "k": k, "thick": thick, "a": a, "b": b, "keys": keys,
             "conf": round(k / max(1, min(fa, fb)), 3),
-            "direct": bool(keys & ma["fwd_to"].get(mb["name"], set())
-                           or keys & mb["fwd_to"].get(ma["name"], set())),
+            "hops": ln["hops"], "direct": ln["hops"] == 1,
+            "same_file": a[0] == b[0],
         })
     bonds.sort(key=lambda t: t["mass"], reverse=True)
     return bonds, unthreaded
@@ -553,9 +757,12 @@ def _heavy(bonds: list, M: dict, p: dict) -> dict:
     and its components as spans. Returns the summary statistics the null is compared on, plus
     the spans themselves."""
     masses = [b["mass"] for b in bonds]
-    med = _median(masses)
-    mad = _median([abs(x - med) for x in masses]) or 1.0
-    thr = med + (p["heavy_madz"] / 0.6745) * mad
+    if p.get("heavy_rule") == "quantile":        # sensitivity: top (1 - heavy_q) by mass
+        thr = max(_quantile(masses, p["heavy_q"]), p["heavy_q_min_mass"]) - 1e-9
+    else:
+        med = _median(masses)
+        mad = _median([abs(x - med) for x in masses]) or 1.0
+        thr = med + (p["heavy_madz"] / 0.6745) * mad
     heavy = [b for b in bonds if b["mass"] > thr] if bonds else []
     adj: dict = defaultdict(set)
     nodes: set = set()
@@ -585,7 +792,7 @@ def _heavy(bonds: list, M: dict, p: dict) -> dict:
             "density": round(density, 2), "hubness": round(hub, 2),
             "files": len({M[mk]["file"] for mk in comp}),
             "mean_fwd_ratio": round(sum(M[mk]["fwd_ratio"] for mk in comp) / span, 2),
-            "n_conduits": sum(1 for mk in comp if M[mk]["conduit"]),
+            "n_conduits": sum(1 for mk in comp if M[mk].get("conduit")),
             "threaded": [[_label(k), n] for k, n in
                          sorted(threaded.items(), key=lambda kv: (-kv[1], kv[0]))],
             "concern": concern, "kind": kind,
@@ -602,6 +809,7 @@ def _heavy(bonds: list, M: dict, p: dict) -> dict:
         "n_concern": sum(1 for s in spans if s["concern"]),
         "max_cluster_mass": max((s["mass"] for s in spans), default=0),
         "n_bonds": len(bonds), "bond_mass": sum(masses),
+        "n_heavy_cross_file": sum(1 for b in heavy if not b["same_file"]),
         "spans": spans, "heavy_bonds": heavy,
     }
 
@@ -610,25 +818,34 @@ _NULL_STATS = ("n_bonds", "bond_mass", "n_heavy", "heavy_mass", "max_span", "n_c
                "max_cluster_mass")
 
 
-def null_model(sets: list, M: dict, p: dict, observed: dict, B: int, seed: int) -> dict:
-    """Draw B fixed-marginal permutations of the change sets and run the same bond / heavy /
-    span pipeline on each. For each statistic: the null mean, its 95th percentile, and the
+def null_model(sets: list, M: dict, p: dict, observed: dict, B: int, seed: int,
+               links: dict, strata: str | None = None) -> dict:
+    """Draw B permutations of the change sets and run the same bond / heavy / span pipeline
+    on each. `strata` None: fixed-marginal curveball (commit sizes and method frequencies
+    kept). `strata` "file": the within-file curveball (per-commit, per-file counts kept as
+    well; the H2 null). For each statistic: the null mean, its 95th percentile, and the
     one-sided p-value (1 + #null >= observed) / (1 + B)."""
     if B <= 0 or not sets:
         return {"samples": 0}
     rng = random.Random(seed)
     work = [set(s) for s in sets]
-    n = len(work)
-    curveball(work, rng, 10 * n)
+    if strata == "file":
+        file_of = {m: m[0] for s in work for m in s}
+        n = sum(len({m[0] for m in s}) for s in work)       # (commit, file) incidences
+        shuffle = lambda t: curveball_stratified(work, rng, t, file_of)  # noqa: E731
+    else:
+        n = len(work)
+        shuffle = lambda t: curveball(work, rng, t)  # noqa: E731
+    shuffle(10 * n)
     draws: dict = {k: [] for k in _NULL_STATS}
     for _ in range(B):
-        curveball(work, rng, 5 * n)
+        shuffle(5 * n)
         cc, pair = pair_counts(work, p["max_commit_size"])
-        bonds, _ = _bonds(pair, cc, M, p["min_k"])
+        bonds, _ = _bonds(pair, cc, M, p["min_k"], links)
         h = _heavy(bonds, M, p)
         for k in _NULL_STATS:
             draws[k].append(h[k])
-    out = {"samples": B}
+    out = {"samples": B, "strata": strata}
     for k in _NULL_STATS:
         xs = draws[k]
         obs = observed[k]
@@ -666,6 +883,7 @@ def sinew(base: str, max_commit_size: int | None = None, min_k: int | None = Non
         m["joint"] = min(m["IN"], m["OUT"])
         m["conduit"] = m["fwd_ratio"] >= p["conduit_ratio"] and m["IN"] >= p["conduit_min_params"]
         m["freq"] = change_count.get((m["file"], m["qualname"]), 0)
+    links = thread_links(M)
 
     # co-change degree and THREAD degree among methods alive at HEAD
     partners: Counter = Counter()
@@ -675,7 +893,7 @@ def sinew(base: str, max_commit_size: int | None = None, min_k: int | None = Non
         if a in M and b in M:
             partners[a] += 1
             partners[b] += 1
-            if thread_keys(M[a], M[b]):
+            if pr in links:
                 tpartners[a] += 1
                 tpartners[b] += 1
     for mk, m in M.items():
@@ -701,14 +919,28 @@ def sinew(base: str, max_commit_size: int | None = None, min_k: int | None = Non
     typology["non-conduit"] = {"n": len(noncond), "mean_degree":
                                round(sum(noncond) / len(noncond), 3) if noncond else 0.0}
 
-    # controls: does threading predict entanglement BEYOND change frequency, size and
-    # complexity? (H1 is the fwd_ratio ~ degree partial given all three.)
+    # controls: does threading predict entanglement BEYOND change frequency, size,
+    # complexity, call out-degree and parameter count? (H1 is the fwd_ratio ~ degree partial
+    # given all five; the three-control partial is kept as a secondary.) A method that
+    # forwards must call, and a method with more parameters has more to forward, so without
+    # the last two the partial would re-test call coupling and interface size.
     ms = list(M.values())
     col = lambda k: [m[k] for m in ms]  # noqa: E731
     deg, freq, nloc, cc = col("degree"), col("freq"), col("nloc"), col("cc")
     ratio, fwd, IN, OUT = col("fwd_ratio"), col("fwd_args"), col("IN"), col("OUT")
-    full = [freq, nloc, cc]
+    calls = col("n_calls_own")
+    three = [freq, nloc, cc]
+    full = [freq, nloc, cc, calls, IN]
+    files = col("file")
     controls = {
+        "fwd_ratio ~ degree | freq,nloc,cc,calls,params (partial)":
+            partial_spearman(ratio, deg, full),
+        "fwd_ratio_strict ~ degree | freq,nloc,cc,calls,params (partial)":
+            partial_spearman(col("fwd_ratio_strict"), deg, full),
+        "fwd_ratio_any ~ degree | freq,nloc,cc,calls,params (partial)":
+            partial_spearman(col("fwd_ratio_any"), deg, full),
+        "calls ~ degree | freq,nloc,cc (partial)": partial_spearman(calls, deg, three),
+        "params ~ degree | freq,nloc,cc (partial)": partial_spearman(IN, deg, three),
         "fwd_ratio ~ degree (raw)": spearman(ratio, deg),
         "fwd_args ~ degree (raw)": spearman(fwd, deg),
         "freq ~ degree (raw)": spearman(freq, deg),
@@ -719,34 +951,64 @@ def sinew(base: str, max_commit_size: int | None = None, min_k: int | None = Non
         "fwd_args ~ degree | cc (partial)": partial_spearman(fwd, deg, [cc]),
         "fwd_args ~ degree | nloc (partial)": partial_spearman(fwd, deg, [nloc]),
         "fwd_ratio ~ degree | cc (partial)": partial_spearman(ratio, deg, [cc]),
-        "fwd_ratio ~ degree | freq,nloc,cc (partial)": partial_spearman(ratio, deg, full),
-        "fwd_args ~ degree | freq,nloc,cc (partial)": partial_spearman(fwd, deg, full),
+        "fwd_ratio ~ degree | freq,nloc,cc (partial)": partial_spearman(ratio, deg, three),
+        "fwd_args ~ degree | freq,nloc,cc (partial)": partial_spearman(fwd, deg, three),
         "fwd_ratio ~ thread_degree | freq,nloc,cc (partial)":
-            partial_spearman(ratio, col("thread_degree"), full),
+            partial_spearman(ratio, col("thread_degree"), three),
         "fwd_ratio_any ~ degree | freq,nloc,cc (partial)":
-            partial_spearman(col("fwd_ratio_any"), deg, full),
+            partial_spearman(col("fwd_ratio_any"), deg, three),
     }
     n = len(ms)
 
     def _primary(idx):
         return partial_spearman([ratio[i] for i in idx], [deg[i] for i in idx],
                                 [[z[i] for i in idx] for z in full])
-    controls["fwd_ratio ~ degree | freq,nloc,cc (partial) ci95"] = bootstrap_ci(
-        _primary, n, p["bootstrap"], p["seed"])
+    # the interval resamples FILES (cluster bootstrap), not methods
+    controls["fwd_ratio ~ degree | freq,nloc,cc,calls,params (partial) ci95"] = bootstrap_ci(
+        _primary, n, p["bootstrap"], p["seed"], clusters=files)
+    controls["n_files"] = len(set(files))
 
-    # bonds, heavy bonds, spans, and the null
-    bonds, unthreaded = _bonds(pair, change_count, M, p["min_k"])
+    # bonds, heavy bonds, spans, and the two nulls
+    bonds, unthreaded = _bonds(pair, change_count, M, p["min_k"], links)
     masses = [b["mass"] for b in bonds]
     total = sum(masses) or 1.0
     dec = max(1, len(masses) // 10)
     h = _heavy(bonds, M, p)
-    null = null_model(sets, M, p, h, p["null_samples"], p["seed"])
+    hq = _heavy(bonds, M, {**p, "heavy_rule": "quantile"})
+    null = null_model(sets, M, p, h, p["null_samples"], p["seed"], links)
+    null_file = null_model(sets, M, p, h, p["null_samples"], p["seed"], links, strata="file")
+
+    # the counterfactual: among CALL-linked pairs (a calls b), do the thread-linked ones
+    # co-change more often than the ones that pass no parameter along?
+    cf = {"threaded": [0, 0, 0], "unthreaded": [0, 0, 0]}   # [pairs, co-changing, sum k]
+    for pr in call_pairs(M):
+        k = pair.get(pr, 0)
+        cell = cf["threaded" if pr in links else "unthreaded"]
+        cell[0] += 1
+        cell[1] += k >= p["min_k"]
+        cell[2] += k
+    counterfactual = {
+        g: {"pairs": v[0], "cochanging": v[1],
+            "p_cochange": round(v[1] / v[0], 4) if v[0] else None,
+            "mean_k": round(v[2] / v[0], 3) if v[0] else None}
+        for g, v in cf.items()}
+    pt, pu = counterfactual["threaded"]["p_cochange"], counterfactual["unthreaded"]["p_cochange"]
+    counterfactual["ratio"] = round(pt / pu, 3) if pt is not None and pu else None
+    counterfactual["n_thread_links"] = len(links)
+
     heavy = {
         "n_cochange_pairs": len(bonds) + unthreaded,
         "n_pairs": len(bonds), "n_unthreaded": unthreaded,
         "share_threaded": round(len(bonds) / (len(bonds) + unthreaded), 3)
         if (bonds or unthreaded) else 0.0,
         "n_direct": sum(1 for b in bonds if b["direct"]),
+        "n_same_file": sum(1 for b in bonds if b["same_file"]),
+        "hops": {str(k): v for k, v in sorted(Counter(b["hops"] for b in bonds).items())},
+        "n_heavy_cross_file": h["n_heavy_cross_file"],
+        "heavy_quantile": {"threshold": hq["threshold"], "n_heavy": hq["n_heavy"],
+                           "heavy_mass": hq["heavy_mass"], "max_span": hq["max_span"],
+                           "n_concern": hq["n_concern"]},
+        "counterfactual": counterfactual,
         "top_decile_share": round(sum(masses[:dec]) / total, 3),
         "top_1pct_share": round(sum(masses[:max(1, len(masses) // 100)]) / total, 3),
         "heavy_threshold": h["threshold"], "n_heavy_madz": h["n_heavy"],
@@ -758,7 +1020,11 @@ def sinew(base: str, max_commit_size: int | None = None, min_k: int | None = Non
                  "b": (M[b["b"]]["name"], M[b["b"]]["IN"], M[b["b"]]["OUT"], M[b["b"]]["cc"],
                        M[b["b"]]["fwd_ratio"])}
                 for b in bonds[:15]],
-        "spans": h["spans"], "null": null,
+        "spans": h["spans"], "null": null, "null_file": null_file,
+        "bonds": [{"a": M[b["a"]]["name"], "b": M[b["b"]]["name"], "k": b["k"],
+                   "thick": b["thick"], "mass": b["mass"], "hops": b["hops"],
+                   "same_file": b["same_file"], "keys": sorted(_label(x) for x in b["keys"])}
+                  for b in bonds],
     }
 
     inv = [m["IN"] for m in ms]
@@ -810,11 +1076,17 @@ def _print_sinew(base: str, max_commit_size: int | None = None,
         else:
             print(f"    {k:52} {_fmt(v)}")
     h = s["heavy"]
-    print(f"\n[3] BONDS  (co-change k>={p['min_k']} AND a threaded parameter key)")
-    print(f"    {h['n_cochange_pairs']} co-changing pairs, {h['n_pairs']} threaded "
-          f"({h['share_threaded']:.0%}), {h['n_direct']} with a direct forwarding call; "
+    print(f"\n[3] BONDS  (co-change k>={p['min_k']} AND thread-linked)")
+    print(f"    {h['n_cochange_pairs']} co-changing pairs, {h['n_pairs']} thread-linked "
+          f"({h['share_threaded']:.0%}), {h['n_direct']} direct, {h['n_same_file']} same-file; "
           f"top-decile holds {h['top_decile_share'] * 100:.0f}% of mass; "
-          f"{h['n_heavy_madz']} heavy (MAD-z>{p['heavy_madz']}, mass>{h['heavy_threshold']})")
+          f"{h['n_heavy_madz']} heavy (MAD-z>{p['heavy_madz']}, mass>{h['heavy_threshold']}; "
+          f"{h['n_heavy_cross_file']} cross-file); quantile rule: "
+          f"{h['heavy_quantile']['n_heavy']} heavy, max span {h['heavy_quantile']['max_span']}")
+    cf = h["counterfactual"]
+    print(f"    call-linked pairs: thread-linked {cf['threaded']['pairs']} "
+          f"(P(co-change)={cf['threaded']['p_cochange']}) vs unthreaded "
+          f"{cf['unthreaded']['pairs']} (P={cf['unthreaded']['p_cochange']}); ratio {cf['ratio']}")
     print(f"    {'heavy':>6} {'k':>3} {'thick':>5} {'conf':>5} {'dir':>3}  "
           f"{'method A (IN/OUT/cc/fwd)':<34} {'method B (IN/OUT/cc/fwd)':<34} threads")
     for t in h["top"]:
@@ -835,15 +1107,15 @@ def _print_sinew(base: str, max_commit_size: int | None = None,
         print(f"    {sp['span']:>4} {sp['links']:>5} {sp['mass']:>5} {sp['density']:>4} "
               f"{sp['hubness']:>4} {sp['files']:>5} {sp['verdict']:>9} {sp['kind']:>18}  "
               f"{thr} | {mem}")
-    nl = h["null"]
-    print(f"\n[5] NULL  ({nl.get('samples', 0)} fixed-marginal permutations of who changes "
-          "together; p = P(null >= observed))")
-    if nl.get("samples"):
-        print(f"    {'statistic':>17} {'observed':>9} {'null mean':>10} {'null q95':>9} {'p':>7}")
-        for k in _NULL_STATS:
-            d = nl[k]
-            print(f"    {k:>17} {d['observed']:>9} {d['null_mean']:>10} {d['null_q95']:>9} "
-                  f"{d['p']:>7}")
+    for label, nl in (("WITHIN-FILE null (H2: per-commit, per-file counts kept)", h["null_file"]),
+                      ("fixed-marginal null (secondary)", h["null"])):
+        print(f"\n[5] {label}: {nl.get('samples', 0)} permutations; p = P(null >= observed)")
+        if nl.get("samples"):
+            print(f"    {'statistic':>17} {'observed':>9} {'null mean':>10} {'null q95':>9} {'p':>7}")
+            for k in _NULL_STATS:
+                d = nl[k]
+                print(f"    {k:>17} {d['observed']:>9} {d['null_mean']:>10} {d['null_q95']:>9} "
+                      f"{d['p']:>7}")
 
 
 # ---------------------------------------------------------------------------

@@ -162,6 +162,10 @@ class TestParameters(unittest.TestCase):
         self.assertEqual(P(" int [ ] arr", "java"), ("arr", "int[]"))
         self.assertEqual(P(" String ... rest", "java"), ("rest", "String[]"))
         self.assertEqual(P(" Order o", "java"), ("o", "Order"))
+        # `in`, `ref`, `var` are modifiers in C# / Kotlin and ordinary parameter NAMES in Java
+        self.assertEqual(P("JsonReader in", "java"), ("in", "JsonReader"))
+        self.assertEqual(P("final Object ref", "java"), ("ref", "Object"))
+        self.assertEqual(P("Ctx var", "java"), ("var", "Ctx"))
         self.assertEqual(P("req : Request", "py"), ("req", "Request"))
         self.assertEqual(P(" ctx", "py"), ("ctx", None))
         self.assertEqual(P(" n : int = 3", "py"), ("n", "int"))
@@ -319,6 +323,73 @@ public class O {
             self.assertEqual(m["param_keys"], {"T:Order", "N:b", "N:c"})
             self.assertEqual(m["fwd_keys"], {"T:Order", "N:b"})
 
+    def test_same_signature_bodies_are_told_apart_but_overloads_still_merge(self):
+        """lizard names every enum-constant body `E::read`; they must not merge into one."""
+        src = """package app;
+public enum E {
+  A { int read(T t) { return 1; } },
+  B { int read(T t) { return 2; } };
+  abstract int read(T t);
+  int other(T t) { return 0; }
+}
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, "src/main/java/app/E.java"), src)
+            rows = lizard_extract.method_shapes(d)
+            self.assertEqual(sorted(s["qualname"] for s in rows), ["E.other", "E.read#1", "E.read#2"])
+            self.assertEqual({s["name"] for s in rows}, {"other", "read"})
+            self.assertEqual(len(analyze.methods_at_head(rows)), 3)
+
+    def test_strict_forwards_need_a_resolvable_callee(self):
+        """`items.add(o)` is 'internal' by name when any class defines `add`; the strict
+        metrics count only callees defined in the caller's file or once in the project."""
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, "src/main/java/app/A.java"), """package app;
+public class A {
+  void use(Order o, Ctx c) { items.add(o); helper(c); }
+  void helper(Ctx c) { }
+}
+""")
+            _write(os.path.join(d, "src/main/java/app/B.java"),
+                   "package app;\npublic class B { void add(Order o) { } }\n")
+            _write(os.path.join(d, "src/main/java/app/C.java"),
+                   "package app;\npublic class C { void add(Order o) { } }\n")
+            use = {s["name"]: s for s in lizard_extract.method_shapes(d)}["use"]
+            self.assertEqual(use["fwd_names"], ["c", "o"])
+            self.assertEqual(use["fwd_names_strict"], ["c"])
+            self.assertEqual((use["fwd_ratio"], use["fwd_ratio_strict"]), (1.0, 0.5))
+            self.assertEqual(use["fwd_keys_strict"], ["T:Ctx"])
+
+
+class TestThreadLinks(unittest.TestCase):
+    def test_a_shared_name_is_not_a_link_unless_the_forward_reaches_the_partner(self):
+        src = """package app;
+public class V {
+  int head(Node node, int depth) { return addHead(depth); }
+  int tail(Node node, int depth) { return addTail(depth); }
+  int addHead(int depth) { return depth; }
+  int addTail(int depth) { return depth + 1; }
+  int top(Order order, Ctx ctx) { return mid(order, ctx); }
+  int mid(Order order, Ctx ctx) { return leaf(order, ctx); }
+  int leaf(Order order, Ctx ctx) { return order.size(); }
+}
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, "src/main/java/app/V.java"), src)
+            M = analyze.methods_at_head(lizard_extract.method_shapes(d))
+            links = analyze.thread_links(M)
+            k = lambda n: ("src/main/java/app/V.java", "V." + n)  # noqa: E731
+            # head and tail both declare `node` and `depth`; neither hands them to the other
+            self.assertEqual(analyze.thread_keys(links, k("head"), k("tail")), set())
+            self.assertEqual(analyze.thread_keys(links, k("head"), k("addHead")), {"N:depth"})
+            self.assertEqual(analyze.thread_keys(links, k("top"), k("mid")), {"T:Order", "T:Ctx"})
+            self.assertEqual(links[frozenset((k("top"), k("leaf")))],
+                             {"keys": {"T:Order", "T:Ctx"}, "hops": 2})   # through mid
+            self.assertNotIn(frozenset((k("head"), k("top"))), links)
+            cp = analyze.call_pairs(M)
+            self.assertIn(frozenset((k("top"), k("mid"))), cp)
+            self.assertNotIn(frozenset((k("head"), k("tail"))), cp)
+
 
 class TestExtractorPython(unittest.TestCase):
     def test_forward_metrics_match_java_and_keyword_arguments_forward(self):
@@ -418,8 +489,60 @@ class TestStatistics(unittest.TestCase):
         self.assertEqual(Counter(m for s in work for m in s), freq)
         self.assertNotEqual(work, sets)
 
+    def test_stratified_curveball_keeps_per_file_counts(self):
+        import random
+        from collections import Counter
+        fa = [("f", f"m{i}") for i in range(6)]
+        fb = [("g", f"m{i}") for i in range(6)]
+        sets = [set(fa[:3]) | set(fb[:1]), set(fa[2:5]) | set(fb[1:4]),
+                set(fa[1:2]) | set(fb[3:6]), set(fa[3:6]), set(fb[:2])]
+        work = [set(s) for s in sets]
+        analyze.curveball_stratified(work, random.Random(1), 500,
+                                     {m: m[0] for s in sets for m in s})
+        per_file = lambda ss: [Counter(m[0] for m in s) for s in ss]  # noqa: E731
+        self.assertEqual(per_file(work), per_file(sets))             # per-commit, per-file sizes
+        self.assertEqual(Counter(m for s in work for m in s),
+                         Counter(m for s in sets for m in s))         # method frequencies
+        self.assertNotEqual(work, sets)
+
+    def test_combined_p_values_pooling_and_the_chance_pass_probability(self):
+        self.assertAlmostEqual(analyze.stouffer([0.5, 0.5])["p"], 0.5, places=3)
+        self.assertLess(analyze.stouffer([0.01, 0.02, 0.03])["p"], 0.001)
+        self.assertAlmostEqual(analyze.binom_tail(0, 10, 0.05), 1.0)
+        self.assertAlmostEqual(analyze.binom_tail(10, 10, 0.5), 1 / 1024)
+        self.assertAlmostEqual(rate.chance_pass(5, 5), (6 / 32) * (6 / 32))
+        self.assertAlmostEqual(rate.chance_pass(1, 1), 0.25)
+        pooled = analyze.pool_estimates([0.1, 0.12, 0.08], [0.02, 0.03, 0.02])
+        self.assertGreater(pooled["ci95"][0], 0)
+        rr = analyze.pool_log_ratios([(20, 100, 10, 100), (30, 100, 10, 100)])
+        self.assertGreater(rr["ci95"][0], 1)
+
+    def test_cluster_bootstrap_resamples_whole_clusters(self):
+        from collections import Counter
+        seen = []
+
+        def stat(idx):
+            seen.append(list(idx))
+            return 0.0
+        analyze.bootstrap_ci(stat, 8, 5, clusters=["a", "a", "b", "b", "c", "c", "d", "d"])
+        self.assertEqual(len(seen), 5)
+        for idx in seen:                       # members of one cluster come and go together
+            cnt = Counter(idx)
+            for i in range(0, 8, 2):
+                self.assertEqual(cnt[i], cnt[i + 1])
+
 
 N_LIGHT = planted.N_LIGHT
+CHAIN_MARKERS = [f"{t1} {t1.lower()}" for _, (t1, _) in planted.CHAINS]   # `Order order` ...
+
+
+def _sees_a_chain(user: str) -> bool:
+    return any(m in user for m in CHAIN_MARKERS)
+
+
+def key_of(dossier_dir: str) -> list:
+    with open(os.path.join(dossier_dir, "mine.key.json")) as fh:
+        return json.load(fh)
 plant = planted.plant
 
 
@@ -449,49 +572,75 @@ class TestPlantedSinew(unittest.TestCase):
 
     def test_bonds_are_threaded_cochange_only(self):
         h = self.s["heavy"]
-        names = lambda t: frozenset((t["a"][0], t["b"][0]))  # noqa: E731
-        top = {names(t): t for t in h["top"]}
+        bonds = {frozenset((b["a"], b["b"])): b for b in h["bonds"]}
         chain = ["top", "m1", "m2", "leaf"]
         for i in range(4):
             for j in range(i + 1, 4):
-                b = top[frozenset((chain[i], chain[j]))]
-                self.assertEqual((b["k"], b["thick"], b["shared"]), (8, 2, ["Ctx", "Order"]))
-        self.assertTrue(top[frozenset(("top", "m1"))]["direct"])
-        self.assertFalse(top[frozenset(("top", "leaf"))]["direct"])
-        self.assertNotIn(frozenset(("alpha", "beta")), top)     # co-change, nothing threaded
-        self.assertNotIn(frozenset(("p", "q")), top)            # threaded, never changed
-        self.assertEqual(h["n_unthreaded"], 1)                   # alpha-beta
-        self.assertEqual(h["n_pairs"], 6 + N_LIGHT)
+                b = bonds[frozenset((chain[i], chain[j]))]
+                self.assertEqual((b["k"], b["thick"], b["keys"], b["hops"]),
+                                 (8, 2, ["Ctx", "Order"], j - i))
+        self.assertEqual(bonds[frozenset(("encode", "decode"))]["keys"], ["Frame", "Wire"])
+        self.assertNotIn(frozenset(("alpha", "beta")), bonds)   # co-change, nothing threaded
+        self.assertNotIn(frozenset(("p", "q")), bonds)          # threaded, never changed
+        self.assertEqual(h["n_unthreaded"], planted.N_DECOYS)
+        self.assertEqual(h["n_pairs"], 6 * planted.N_CHAINS + planted.N_CONTRACTS + N_LIGHT)
+        self.assertEqual(h["n_same_file"], h["n_pairs"])
+        self.assertEqual(h["hops"], {"1": 3 * planted.N_CHAINS + planted.N_CONTRACTS + N_LIGHT,
+                                     "2": 2 * planted.N_CHAINS, "3": planted.N_CHAINS})
+        cf = h["counterfactual"]
+        self.assertGreater(cf["threaded"]["p_cochange"], 0.9)   # only the quiet pair is silent
+        self.assertEqual(cf["unthreaded"]["pairs"], 0)         # decoys do not call each other
 
-    def test_heavy_span_is_the_planted_chain_and_a_concern(self):
+    def test_heavy_spans_are_the_planted_chains_and_contracts(self):
         h = self.s["heavy"]
-        self.assertEqual(h["n_heavy_madz"], 6)
-        self.assertEqual(len(h["spans"]), 1)
-        sp = h["spans"][0]
-        self.assertEqual((sp["span"], sp["links"], sp["density"]), (4, 6, 1.0))
-        self.assertEqual(sp["verdict"], "CONCERN")
-        self.assertEqual(sp["kind"], "duplication-clique")
-        self.assertEqual({m[0] for m in sp["members"]}, {"top", "m1", "m2", "leaf"})
-        self.assertEqual(sp["threaded"], [["Ctx", 6], ["Order", 6]])
+        n_heavy = 6 * planted.N_CHAINS + planted.N_CONTRACTS
+        self.assertEqual(h["n_heavy_madz"], n_heavy)
+        self.assertEqual(h["heavy_quantile"]["n_heavy"], n_heavy)   # the quantile rule agrees
+        self.assertEqual(len(h["spans"]), planted.N_CHAINS + planted.N_CONTRACTS)
+        concern = [sp for sp in h["spans"] if sp["concern"]]
+        self.assertEqual({frozenset(m[0] for m in sp["members"]) for sp in concern},
+                         {frozenset(names) for names, _ in planted.CHAINS})
+        for sp in concern:
+            self.assertEqual((sp["span"], sp["links"], sp["density"]), (4, 6, 1.0))
+            self.assertEqual((sp["verdict"], sp["kind"]), ("CONCERN", "duplication-clique"))
+        sp1 = next(sp for sp in concern if {m[0] for m in sp["members"]} == {"top", "m1", "m2", "leaf"})
+        self.assertEqual(sp1["threaded"], [["Ctx", 6], ["Order", 6]])
+        contracts = [sp for sp in h["spans"] if not sp["concern"]]
+        self.assertEqual([(sp["span"], sp["kind"], sp["verdict"]) for sp in contracts],
+                         [(2, "contract", "cohesion")] * planted.N_CONTRACTS)
 
-    def test_null_model_finds_the_planted_structure_unlikely(self):
+    def test_null_models_find_the_planted_structure_unlikely(self):
+        for key in ("null", "null_file"):
+            nl = self.s["heavy"][key]
+            self.assertEqual(nl["samples"], 20, key)
+            self.assertGreater(nl["heavy_mass"]["observed"], nl["heavy_mass"]["null_mean"], key)
+            self.assertLess(nl["heavy_mass"]["p"], 0.1, key)
+        # the fixed-marginal null scatters the chains across files, so their span is rare;
+        # the within-file null keeps each chain's edits in its file and can only dilute them
+        # onto the bystanders, so the span itself is not rare there -- the mass is
         nl = self.s["heavy"]["null"]
-        self.assertEqual(nl["samples"], 20)
-        for stat in ("heavy_mass", "max_span"):
-            self.assertGreater(nl[stat]["observed"], nl[stat]["null_mean"], stat)
-        self.assertLess(nl["heavy_mass"]["p"], 0.1)
+        self.assertGreater(nl["max_span"]["observed"], nl["max_span"]["null_mean"])
+        self.assertGreaterEqual(self.s["heavy"]["null_file"]["max_span"]["observed"],
+                                self.s["heavy"]["null_file"]["max_span"]["null_mean"])
+        self.assertEqual(self.s["heavy"]["null_file"]["strata"], "file")
         flags = sinew_study.flag_outliers(self.s)
         self.assertTrue(flags[0]["concern"])
         self.assertTrue(flags[0]["outlier"])
 
     def test_controls_and_window_are_reported(self):
         c = self.s["controls"]
-        self.assertIn(sinew_study.PRIMARY, c)
-        self.assertIsNotNone(c[sinew_study.PRIMARY])
+        for k in (sinew_study.PRIMARY, sinew_study.PRIMARY_3,
+                  "calls ~ degree | freq,nloc,cc (partial)",
+                  "fwd_ratio_strict ~ degree | freq,nloc,cc,calls,params (partial)"):
+            self.assertIn(k, c)
+            self.assertIsNotNone(c[k], k)
         ci = c[sinew_study.PRIMARY + " ci95"]
         self.assertEqual(len(ci), 2)
+        self.assertEqual(c["n_files"], planted.N_CHAINS + planted.N_DECOYS
+                         + planted.N_CONTRACTS + 1 + N_LIGHT)
         w = self.s["window"]
-        self.assertEqual(w["n_commits"], 42)
+        self.assertEqual(w["n_commits"], 234)
+        self.assertEqual(w["n_informative"], 233)       # every commit but the whitespace one
         self.assertEqual(w["n_capped"], 1)
         self.assertGreater(w["days"], 0)
         self.assertEqual(self.s["params"]["max_commit_size"], 30)
@@ -500,29 +649,40 @@ class TestPlantedSinew(unittest.TestCase):
         p = sinew_study.predicts(self.base, commits=self.commits, head=self.rows, bootstrap=20)
         self.assertNotIn("error", p)
         for k in ("sinew~future (raw)", "cochange~future (raw)", "freq~future (raw)",
-                  sinew_study.PRIMARY_PREDICT, "cochange~future | freq,nloc,cc (partial)",
-                  "lift", "baseline_lift"):
+                  sinew_study.PRIMARY_PREDICT, sinew_study.BASELINE_PREDICT, "increment",
+                  "increment_ci95", "increment_se", "lift", "baseline_lift"):
             self.assertIn(k, p)
+        self.assertAlmostEqual(p["increment"],
+                               p[sinew_study.PRIMARY_PREDICT] - p[sinew_study.BASELINE_PREDICT], 3)
         self.assertEqual(p["n_gone_by_end"], 0)
-        self.assertEqual(p["n_methods_at_cut"], 32)
+        self.assertEqual(p["n_methods_at_cut"], 152)
 
     def test_aggregate_row_sensitivity_and_blind_dossiers(self):
         row = sinew_study.aggregate_row(self.base, {"null_samples": 5, "bootstrap": 10},
                                         rows=self.rows, commits=self.commits)
-        self.assertEqual((row["concern"], row["max_span"], row["clusters"]), (1, 4, 1))
+        self.assertEqual((row["concern"], row["max_span"], row["clusters"]),
+                         (planted.N_CHAINS, 4, planted.N_CHAINS + planted.N_CONTRACTS))
         self.assertEqual(set(row["sensitivity"]), {"10", "20", "50"})
-        self.assertEqual(row["languages"], {"java": 15})
+        self.assertEqual(row["languages"], {"java": 61})
         self.assertIn("predict", row)
+        self.assertIn("null_file", row)
+        self.assertIn("counterfactual", row)
         out = os.path.join(self.tmp.name, "dossiers")
         n = sinew_study.dossier(self.base, out, repo=self.repo.root, blind=True,
                                 s=self.s, rows=self.rows, commits=self.commits)
         with open(os.path.join(out, "mine.key.json")) as fh:
             key = json.load(fh)
         self.assertEqual(n, len(key))
-        self.assertEqual({k["truth"] for k in key}, {"concern", "decoy"})
+        self.assertEqual({k["truth"] for k in key}, {"concern", "contract", "decoy"})
+        decoys = [k for k in key if k["truth"] == "decoy"]
+        self.assertEqual(len(decoys), planted.N_DECOYS)
+        for k in decoys:                         # matched on commits (8 = 8); size as close as exists
+            self.assertEqual((k["match"]["target_span"], k["match"]["target_commits"],
+                              k["match"]["commits"], k["span"]), (4, 9, 9, 2))   # 8 edits + creation
         for k in key:
             text = open(os.path.join(out, k["file"])).read()
             self.assertNotIn("CONCERN", text)        # blind: no verdict in the dossier
+            self.assertNotIn("**methods**", text)    # and no size / commit counts up front
             self.assertIn("## Members", text)
             self.assertIn("```java", text)           # source read from the clone
 
@@ -537,34 +697,49 @@ class TestPlantedSinew(unittest.TestCase):
             self.assertNotIn("tramp data", text)         # no checklist naming the causes
         calls = []
 
+        n_dossiers = planted.N_CHAINS + planted.N_CONTRACTS + planted.N_DECOYS
+
         def fake(model, system, user):
             calls.append((model, system, user))
-            # rater A: consolidate when the group threads Order; rater B: always leave
-            yes = model == "rater-a" and "Order order" in user
+            # rater A: consolidate when the group threads a planted chain's type; rater B:
+            # always leave, and served by the server-side fallback model
+            yes = model == "rater-a" and _sees_a_chain(user)
             return {"text": json.dumps({"decision": "consolidate" if yes else "leave",
                                         "confidence": 4, "cause": rate.CAUSES[0],
                                         "data_passed": ["order", "ctx"] if yes else [],
                                         "justification": "because"}),
-                    "request_id": "req_x", "served_by": model, "stop_reason": "end_turn",
+                    "request_id": "req_x", "stop_reason": "end_turn",
+                    "served_by": "fallback-x" if model == "rater-b" else model,
                     "usage": {"input": 10, "output": 5}}
         log = rate.rate(out, ["rater-a", "rater-b"], runs=2, call=fake, log=lambda *_: None)
-        self.assertEqual(len(calls), 2 * 2 * 2)                 # 2 dossiers x 2 models x 2 runs
+        self.assertEqual(len(calls), n_dossiers * 2 * 2)       # dossiers x 2 models x 2 runs
         self.assertTrue(all(rate.leaks(sy) == [] for _, sy, _ in calls))
         with open(log) as fh:
             recs = [json.loads(l) for l in fh]
-        self.assertEqual(len(recs), 8)
+        self.assertEqual(len(recs), n_dossiers * 4)
         self.assertTrue(all(r["justification"] == "because" and r["prompt_sha256_16"]
                             for r in recs))
         rate.rate(out, ["rater-a", "rater-b"], runs=2, call=fake, log=lambda *_: None)
-        self.assertEqual(len(calls), 8)                         # resumed: nothing re-rated
+        self.assertEqual(len(calls), n_dossiers * 4)           # resumed: nothing re-rated
         card = rate.score(out, log=lambda *_: None)
-        a, b = card["per_model"]["rater-a"], card["per_model"]["rater-b"]
-        self.assertEqual((a["concern"]["rate"], a["decoy"]["rate"]), (1.0, 0.0))
-        self.assertEqual(a["concern_minus_decoy"], 1.0)
+        # the fallback-served ratings are scored as their own rater, not as rater-b
+        self.assertEqual(set(card["per_model"]), {"rater-a", "rater-b -> fallback-x"})
+        a, b = card["per_model"]["rater-a"], card["per_model"]["rater-b -> fallback-x"]
+        self.assertEqual((a["concern"]["rate"], a["contract"]["rate"], a["decoy"]["rate"]),
+                         (1.0, 0.0, 0.0))
+        self.assertEqual((a["concern_minus_contract"], a["concern_minus_decoy"]), (1.0, 1.0))
         self.assertEqual((b["concern"]["rate"], b["decoy"]["rate"]), (0.0, 0.0))
         self.assertEqual(a["self_consistency"], 1.0)
-        self.assertIn("rater-a vs rater-b", card["agreement"])
+        self.assertIn("rater-a vs rater-b -> fallback-x", card["agreement"])
         self.assertTrue(os.path.exists(os.path.join(out, "scorecard.json")))
+        # human ratings of the same dossiers are scored beside the models
+        sheet = rate.human_template(out)
+        with open(sheet, "a") as fh:
+            for k in key_of(out)[:3]:
+                fh.write(f"{k['file']},DS,{'consolidate' if k['truth'] == 'concern' else 'leave'},4\n")
+        card = rate.score(out, log=lambda *_: None)
+        self.assertIn("human:DS", card["per_model"])
+        self.assertIn("human:DS vs rater-a", card["agreement"])
         # an unblinded dossier folder is refused
         plain = os.path.join(self.tmp.name, "dossiers-plain")
         sinew_study.dossier(self.base, plain, s=self.s, rows=self.rows, commits=self.commits)
@@ -573,7 +748,7 @@ class TestPlantedSinew(unittest.TestCase):
 
     def test_rater_check_passes_with_a_discriminating_rater_and_fails_otherwise(self):
         def good(model, system, user):
-            yes = "Order order" in user
+            yes = _sees_a_chain(user)
             return {"text": json.dumps({"decision": "consolidate" if yes else "leave",
                                         "confidence": 5, "cause": rate.CAUSES[0],
                                         "data_passed": [], "justification": "j"}),
@@ -584,10 +759,22 @@ class TestPlantedSinew(unittest.TestCase):
             return {**good(model, system, user), "text": json.dumps(
                 {"decision": "leave", "confidence": 3, "cause": rate.CAUSES[-1],
                  "data_passed": [], "justification": "j"})}
+        def yes_man(model, system, user):
+            return {**good(model, system, user), "text": json.dumps(
+                {"decision": "consolidate", "confidence": 5, "cause": rate.CAUSES[0],
+                 "data_passed": [], "justification": "j"})}
         work = os.path.join(self.tmp.name, "check")
         card = rate.check(work, ["m-a"], runs=1, call=good, log=lambda *_: None)
         self.assertTrue(card["passed"])
         self.assertEqual(card["per_model"]["m-a"]["concern_minus_decoy"], 1.0)
+        self.assertEqual(card["truths"], {"concern": planted.N_CHAINS,
+                                          "contract": planted.N_CONTRACTS,
+                                          "decoy": planted.N_DECOYS})
+        self.assertAlmostEqual(card["chance_pass"],
+                               rate.chance_pass(planted.N_CHAINS, planted.N_DECOYS), 4)
+        self.assertLess(card["chance_pass"], 0.05)
+        card_y = rate.check(work, ["m-a"], runs=1, call=yes_man, log=lambda *_: None)
+        self.assertFalse(card_y["passed"])                  # says consolidate to everything
         cfg = os.path.join(self.tmp.name, "rater.json")
         rate.save_config(card["models"], card["runs"], card["effort"], {}, cfg)
         self.assertEqual(rate.load_config(cfg)["models"], ["m-a"])
@@ -615,7 +802,7 @@ class TestPlantedSinew(unittest.TestCase):
             for line in fh:
                 r = json.loads(line)
                 per_sha.setdefault(r["sha"], []).append(r["qualname"])
-        self.assertEqual(len(per_sha), 42)
+        self.assertEqual(len(per_sha), 234)
         self.assertEqual(sorted(per_sha[self.ws_sha]),
                          sorted(r["qualname"] for r in self.rows))   # once, not twice
 
@@ -698,7 +885,7 @@ class TestStudyOverSample(unittest.TestCase):
             rater = {"models": ["m-a"], "runs": 1, "effort": "high"}
             rows = sinew_study.study(sample, out, recent=500,
                                      params={"null_samples": 3, "bootstrap": 5},
-                                     rater=rater, rate_call=fake)
+                                     rater=rater, rate_call=fake, limit=1, pilot={"o/proj"})
 
             self.assertEqual([x["full_name"] for x in rows], ["o/proj"])
             self.assertEqual((rows[0]["commit"], rows[0]["base"]), (sampled, "o__proj"))
@@ -717,6 +904,11 @@ class TestStudyOverSample(unittest.TestCase):
             self.assertIn("predict", study["projects"][0])
             self.assertIn("n_projects", study["pooled"])
             self.assertEqual(study["parameters"]["rater"], rater)
+            self.assertEqual(study["parameters"]["limit"], 1)
+            self.assertTrue(study["projects"][0]["pilot"])
+            self.assertEqual((study["pooled"]["n_projects"], study["pooled"]["n_pilot_excluded"]),
+                             (0, 1))                        # a pilot repository is never pooled
+            self.assertIn("decisions", study["pooled"])
             self.assertEqual(calls, [])                    # no concern cluster: nothing rated
             self.assertTrue(os.path.exists(os.path.join(out, "rated", "scorecard.json")))
             self.assertEqual(study["rating"]["dossiers"], 0)

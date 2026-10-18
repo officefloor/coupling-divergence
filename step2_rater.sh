@@ -2,13 +2,14 @@
 # Step 2 of 5 — choose and VERIFY the AI raters, before anything real is rated.
 #
 # Co-ordination only: the actual work is `sinew rate --check --save`. It builds the planted
-# history with known ground truth (sinew/planted.py: a four-method chain that threads Order and
-# Ctx and is edited together, a decoy pair that is edited together but passes nothing, and a
-# quiet pair), mines it, writes its BLIND dossiers, has each chosen model rate them with a
-# neutral question, unblinds against the key and prints the scorecard. The check passes only
-# when every model rates the planted chain "consolidate" more often than the decoy, with no
-# errors; it then saves the raters to rater.json, which step 4 reads so the same raters, runs
-# and effort carry through the whole study. Every decision and its justification is on record
+# history with known ground truth (sinew/planted.py: five four-method chains that each thread
+# two types and are edited together, two heavy pairs, five decoy pairs that are edited together
+# but pass nothing, and a quiet pair), mines it, writes its BLIND dossiers, has each chosen
+# model rate them with a neutral question, unblinds against the key and prints the scorecard.
+# The check passes only when every model rates at least 80% of the planted chains and at most
+# 20% of the matched decoys "consolidate", with no errors (a coin-flip rater passes with
+# probability 0.035, printed with the result); it then saves the raters to rater.json, which
+# step 4 reads so the same raters, runs and effort carry through the whole study. Every decision and its justification is on record
 # in <work-dir>/blind/ratings.jsonl for anyone to read.
 #
 #   ./step2_rater.sh [--models a,b] [--runs N] [--effort E] [--work DIR] [--skip]

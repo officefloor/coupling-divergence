@@ -38,8 +38,21 @@ from . import analyze as A, discover, mine as mine_mod
 
 SENSITIVITY_CAPS = (10, 20, 50)      # max_commit_size values the main counts are re-run at
 
-PRIMARY = "fwd_ratio ~ degree | freq,nloc,cc (partial)"          # H1
-PRIMARY_PREDICT = "sinew~future | freq,cochange,nloc,cc (partial)"  # H3
+PRIMARY = "fwd_ratio ~ degree | freq,nloc,cc,calls,params (partial)"             # H1
+PRIMARY_3 = "fwd_ratio ~ degree | freq,nloc,cc (partial)"                        # H1, 3 controls
+PRIMARY_PREDICT = "sinew~future | freq,cochange,nloc,cc,calls,params (partial)"  # H3
+BASELINE_PREDICT = "cochange~future | freq,nloc,cc,calls,params (partial)"       # H3 baseline
+PILOT_FILE = "pilot-repositories.txt"   # repositories the method was developed on: never pooled
+
+
+def pilot_names(path: str | None = None) -> set:
+    """The full names (owner/name) listed in the pilot file, if present."""
+    path = path or PILOT_FILE
+    if not os.path.exists(path):
+        return set()
+    with open(path) as fh:
+        return {l.split("#", 1)[0].strip().lower() for l in fh
+                if l.split("#", 1)[0].strip()}
 
 
 # ---------------------------------------------------------------------------
@@ -85,11 +98,16 @@ def aggregate_row(base: str, params: dict | None = None, rows: list | None = Non
                           "concern": t["heavy"]["n_concern"], "max_span": t["heavy"]["max_span"],
                           "primary": t["controls"][PRIMARY]}
     nl = s["heavy"]["null"]
+    nf = s["heavy"]["null_file"]
     row = {
         "base": os.path.basename(base),
         "methods": s["n_methods"], "pairs": s["heavy"]["n_pairs"],
         "cochange_pairs": s["heavy"]["n_cochange_pairs"],
         "share_threaded": s["heavy"]["share_threaded"],
+        "same_file_bonds": s["heavy"]["n_same_file"], "direct_bonds": s["heavy"]["n_direct"],
+        "hops": s["heavy"]["hops"], "n_heavy_cross_file": s["heavy"]["n_heavy_cross_file"],
+        "heavy_quantile": s["heavy"]["heavy_quantile"],
+        "counterfactual": s["heavy"]["counterfactual"],
         "params_mean": s["params_stats"]["mean"], "params_p90": s["params_stats"]["p90"],
         "share_typed_keys": s["params_stats"]["share_typed_keys"],
         "fwd_ratio_mean": s["params_stats"]["mean_fwd_ratio"], "conduits": s["n_conduits"],
@@ -99,9 +117,15 @@ def aggregate_row(base: str, params: dict | None = None, rows: list | None = Non
         "max_span": s["heavy"]["max_span"],
         "null": {k: {kk: v for kk, v in nl[k].items()} for k in A._NULL_STATS}
         if nl.get("samples") else None,
+        "null_file": {k: {kk: v for kk, v in nf[k].items()} for k in A._NULL_STATS}
+        if nf.get("samples") else None,
         "primary": s["controls"][PRIMARY],
         "primary_ci95": s["controls"][PRIMARY + " ci95"],
-        "primary_any": s["controls"]["fwd_ratio_any ~ degree | freq,nloc,cc (partial)"],
+        "primary_3": s["controls"][PRIMARY_3],
+        "primary_strict": s["controls"][
+            "fwd_ratio_strict ~ degree | freq,nloc,cc,calls,params (partial)"],
+        "primary_any": s["controls"]["fwd_ratio_any ~ degree | freq,nloc,cc,calls,params (partial)"],
+        "rival_calls": s["controls"]["calls ~ degree | freq,nloc,cc (partial)"],
         "out_cc_partial": s["controls"]["OUT ~ degree | cc (partial)"],
         "in_cc_partial": s["controls"]["IN ~ degree | cc (partial)"],
         "fwd_cc_partial": s["controls"]["fwd_args ~ degree | cc (partial)"],
@@ -119,36 +143,70 @@ def aggregate_row(base: str, params: dict | None = None, rows: list | None = Non
     return row
 
 
-def pooled(rows: list) -> dict:
-    """Random-effects pooling of the primary per-project correlations, and the share of
-    projects in which the null is beaten on the span statistics."""
-    ok = [r for r in rows if not r.get("error")]
+def pooled(rows: list, sesoi: float = A.PARAMS["sesoi"]) -> dict:
+    """Random-effects pooling of the primary per-project correlations, the combined null
+    tests, and the pre-registered DECISIONS, each as an explicit boolean with the rule it
+    applied. Pilot repositories (the method was developed on them) are excluded from every
+    pooled figure and counted."""
+    ok = [r for r in rows if not r.get("error") and not r.get("pilot")]
+    n_pilot = sum(1 for r in rows if r.get("pilot"))
+    ns = [r["methods"] for r in ok]
     out = {
-        "n_projects": len(ok), "n_failed": len(rows) - len(ok),
-        "H1 " + PRIMARY: A.pool_correlations([r["primary"] for r in ok],
-                                             [r["methods"] for r in ok]),
-        "H1 sensitivity fwd_ratio_any": A.pool_correlations([r["primary_any"] for r in ok],
-                                                            [r["methods"] for r in ok]),
+        "n_projects": len(ok), "n_failed": sum(1 for r in rows if r.get("error")),
+        "n_pilot_excluded": n_pilot, "sesoi": sesoi,
+        "H1 " + PRIMARY: A.pool_correlations([r["primary"] for r in ok], ns),
+        "H1 secondary " + PRIMARY_3: A.pool_correlations([r["primary_3"] for r in ok], ns),
+        "H1 sensitivity fwd_ratio_strict": A.pool_correlations(
+            [r["primary_strict"] for r in ok], ns),
+        "H1 sensitivity fwd_ratio_any": A.pool_correlations([r["primary_any"] for r in ok], ns),
+        "H1 rival calls ~ degree | freq,nloc,cc": A.pool_correlations(
+            [r["rival_calls"] for r in ok], ns),
     }
     for cap in SENSITIVITY_CAPS:
         rs = [(r["sensitivity"].get(str(cap)) or {}).get("primary") for r in ok]
-        out[f"H1 at cap {cap}"] = A.pool_correlations(rs, [r["methods"] for r in ok])
+        out[f"H1 at cap {cap}"] = A.pool_correlations(rs, ns)
     pr = [r["predict"] for r in ok if r.get("predict") and not r["predict"].get("error")]
-    out["H3 " + PRIMARY_PREDICT] = A.pool_correlations(
-        [q[PRIMARY_PREDICT] for q in pr], [q["n_methods_at_cut"] for q in pr])
-    out["H3 cochange~future | freq,nloc,cc (baseline)"] = A.pool_correlations(
-        [q["cochange~future | freq,nloc,cc (partial)"] for q in pr],
-        [q["n_methods_at_cut"] for q in pr])
-    withnull = [r for r in ok if r.get("null")]
-    out["H2 projects"] = len(withnull)
-    for stat in ("n_heavy", "heavy_mass", "max_span", "n_concern"):
-        ps = [r["null"][stat]["p"] for r in withnull]
-        out[f"H2 {stat} p<0.05 in"] = sum(1 for x in ps if x < 0.05)
-        out[f"H2 {stat} observed>null_mean in"] = sum(
-            1 for r in withnull if r["null"][stat]["observed"] > r["null"][stat]["null_mean"])
+    npr = [q["n_methods_at_cut"] for q in pr]
+    out["H3 " + PRIMARY_PREDICT] = A.pool_correlations([q[PRIMARY_PREDICT] for q in pr], npr)
+    out["H3 " + BASELINE_PREDICT] = A.pool_correlations([q[BASELINE_PREDICT] for q in pr], npr)
+    out["H3 increment (sinew partial - cochange partial)"] = A.pool_estimates(
+        [q["increment"] for q in pr], [q["increment_se"] for q in pr])
+    # H2: the within-file null, combined over projects; the fixed-marginal null beside it
+    for label, key in (("H2", "null_file"), ("H2 marginal-null", "null")):
+        withnull = [r for r in ok if r.get(key)]
+        out[f"{label} projects"] = len(withnull)
+        for stat in ("n_heavy", "heavy_mass", "max_span", "n_concern"):
+            ps = [r[key][stat]["p"] for r in withnull]
+            k = sum(1 for x in ps if x < 0.05)
+            out[f"{label} {stat} p<0.05 in"] = k
+            out[f"{label} {stat} binomial p (share vs 5%)"] = (
+                round(A.binom_tail(k, len(ps), 0.05), 6) if ps else None)
+            out[f"{label} {stat} Stouffer"] = A.stouffer(ps)
+    out["H2b call-linked: P(co-change | threaded) / P(co-change | unthreaded)"] = \
+        A.pool_log_ratios([(c["threaded"]["cochanging"], c["threaded"]["pairs"],
+                            c["unthreaded"]["cochanging"], c["unthreaded"]["pairs"])
+                           for c in (r["counterfactual"] for r in ok)])
+    out["projects with >=1 heavy bond"] = sum(1 for r in ok if r["n_heavy"])
     out["projects with >=1 concern cluster"] = sum(1 for r in ok if r["concern"])
     out["projects with >=1 outlier concern cluster"] = sum(
         1 for r in ok if any(f["concern"] and f["outlier"] for f in r.get("flags", [])))
+
+    # the pre-registered decisions, applied mechanically
+    h1 = out["H1 " + PRIMARY]
+    h2 = out["H2 heavy_mass Stouffer"]
+    h3 = out["H3 " + PRIMARY_PREDICT]
+    inc = out["H3 increment (sinew partial - cochange partial)"]
+    out["decisions"] = {
+        "H1": {"rule": f"pooled ci95 above 0, estimate >= {sesoi}, positive in a majority",
+               "holds": bool(h1 and h1["ci95"][0] > 0 and h1["estimate"] >= sesoi
+                             and h1["positive"] > h1["k"] / 2)},
+        "H2": {"rule": "Stouffer p < 0.05 for heavy_mass under the within-file null",
+               "holds": bool(h2 and h2["p"] < 0.05)},
+        "H3": {"rule": f"pooled ci95 above 0, estimate >= {sesoi}, and the increment over "
+                       "unweighted co-change has ci95 above 0",
+               "holds": bool(h3 and h3["ci95"][0] > 0 and h3["estimate"] >= sesoi
+                             and inc and inc["ci95"][0] > 0)},
+    }
     return out
 
 
@@ -164,7 +222,7 @@ def _print_aggregate(rows: list) -> None:
         if r.get("error"):
             print(f"  {name:36} FAILED: {r['error']}")
             continue
-        pn = (r.get("null") or {}).get("n_heavy", {}).get("p")
+        pn = (r.get("null_file") or {}).get("heavy_mass", {}).get("p")
         ci = r.get("primary_ci95")
         q = r.get("predict") or {}
         print(f"  {name:36} {r['methods']:>6} {r['pairs']:>6} {r['share_threaded'] * 100:>4.0f}% "
@@ -174,9 +232,15 @@ def _print_aggregate(rows: list) -> None:
               f"{fmt(r['primary'])} {str(ci) if ci else 'n/a':>16} "
               f"{fmt(q.get(PRIMARY_PREDICT)) if q and not q.get('error') else '    n/a':>7}")
     pl = pooled(rows)
-    print("\n  POOLED (random effects on Fisher z; H2 = permutation null)")
+    print("\n  POOLED (random effects on Fisher z; H2 = within-file permutation null; pilot "
+          "repositories excluded)")
     for k, v in pl.items():
-        print(f"    {k:52} {v}")
+        if k == "decisions":
+            for h, d in v.items():
+                print(f"    DECISION {h}: {'HOLDS' if d['holds'] else 'does not hold'}  "
+                      f"[{d['rule']}]")
+        else:
+            print(f"    {k:52} {v}")
 
 
 # ---------------------------------------------------------------------------
@@ -216,11 +280,14 @@ def _fence(file: str) -> str:
     return (discover.language(file) or "").replace("c#", "csharp").replace("c++", "cpp")
 
 
-def _decoys(s: dict, rows: list, commits: list, n: int, rng: random.Random) -> list:
-    """Decoy clusters for a blind rating: components of the graph of co-changing pairs that
-    thread NOTHING (k >= min_k), sized like the concern clusters. These are co-change without
-    data flow; if raters cannot tell them from the concern clusters, the span verdict is not
-    discriminating threading."""
+def _decoys(s: dict, rows: list, commits: list, targets: list, rng: random.Random,
+            links: dict, starts_per_component: int = 30) -> list:
+    """Decoy clusters for a blind rating, one MATCHED to each concern cluster: a connected
+    group of methods that co-change (k >= min_k) but thread NOTHING, chosen to match the
+    concern cluster's size and its number of co-change commits as closely as possible, so a
+    rater cannot tell them apart by how many methods or commits a dossier shows. Candidates
+    are the components of the unthreaded co-change graph and connected subsets of the larger
+    components. The match achieved is recorded in the key."""
     p = s["params"]
     M = A.methods_at_head(rows)
     _, pair = A.pair_counts(A.change_sets(commits), p["max_commit_size"])
@@ -230,17 +297,55 @@ def _decoys(s: dict, rows: list, commits: list, n: int, rng: random.Random) -> l
         if k < p["min_k"]:
             continue
         a, b = tuple(pr)
-        if a in M and b in M and not A.thread_keys(M[a], M[b]):
+        if a in M and b in M and pr not in links:
             adj[a].add(b)
             adj[b].add(a)
             nodes.update((a, b))
-    comps = [c for c in A._components(nodes, adj) if 2 <= len(c) <= 12]
-    rng.shuffle(comps)
+    spans = sorted({t["span"] for t in targets})
+    cands: set = set()
+    for comp in A._components(nodes, adj):
+        if 2 <= len(comp) <= 12:
+            cands.add(frozenset(comp))
+        for want in spans:
+            if len(comp) <= want:
+                continue
+            starts = list(comp)
+            rng.shuffle(starts)
+            for start in starts[:starts_per_component]:
+                sub, seen, queue = [start], {start}, [start]
+                while queue and len(sub) < want:
+                    u = queue.pop(0)
+                    for v in sorted(adj[u]):
+                        if v not in seen:
+                            seen.add(v)
+                            sub.append(v)
+                            queue.append(v)
+                        if len(sub) >= want:
+                            break
+                if len(sub) == want:
+                    cands.add(frozenset(sub))
+    cands_l = sorted(cands, key=lambda c: sorted(c))
+    rng.shuffle(cands_l)
+    n_commits = {c: len(_cochange_commits(commits, set(c))) for c in cands_l}
+    used: set = set()
     out = []
-    for comp in comps[:n]:
-        members = sorted(comp, key=lambda mk: len(adj[mk] & set(comp)), reverse=True)
-        out.append({"span": len(comp), "links": sum(len(adj[mk] & set(comp)) for mk in comp) // 2,
-                    "kind": "decoy", "threaded": [], "member_keys": [list(mk) for mk in members]})
+    for t in targets:
+        tc = len(_cochange_commits(commits, {tuple(k) for k in t["member_keys"]}))
+        best, best_cost = None, None
+        for c in cands_l:
+            if c & used:
+                continue
+            cost = abs(len(c) - t["span"]) / t["span"] + abs(n_commits[c] - tc) / max(tc, 1)
+            if best_cost is None or cost < best_cost:
+                best, best_cost = c, cost
+        if best is None:
+            break
+        used |= best
+        members = sorted(best, key=lambda mk: len(adj[mk] & best), reverse=True)
+        out.append({"span": len(best), "links": sum(len(adj[mk] & best) for mk in best) // 2,
+                    "kind": "decoy", "threaded": [], "member_keys": [list(mk) for mk in members],
+                    "match": {"target_span": t["span"], "target_commits": tc,
+                              "commits": n_commits[best], "cost": round(best_cost, 3)}})
     return out
 
 
@@ -266,7 +371,9 @@ def dossier(base: str, out_dir: str, repo: str | None = None, max_clusters: int 
         contracts = [f for f in flags if not f["concern"]]
         rng.shuffle(contracts)
         items += [("contract", f) for f in contracts[:max(1, len(concern))]]
-        items += [("decoy", d) for d in _decoys(s, rows, commits, max(1, len(concern)), rng)]
+        links = A.thread_links(A.methods_at_head(rows))
+        targets = concern or ([contracts[0]] if contracts else [])
+        items += [("decoy", d) for d in _decoys(s, rows, commits, targets, rng, links)]
         rng.shuffle(items)
     proj = os.path.basename(base)
     key = []
@@ -275,9 +382,9 @@ def dossier(base: str, out_dir: str, repo: str | None = None, max_clusters: int 
         members_keys = {tuple(k) for k in cl["member_keys"]}
         nodes = [(f, q, r) for f, q in members_keys for r in bykey.get((f, q), [])]
         cc = _cochange_commits(commits, members_keys)
-        lines = ([f"# Cluster {idx}", "", f"- **methods** {len(members_keys)}  "
-                  f"**commits editing two or more of them together** {len(cc)}"]
-                 if blind else [f"# Sinew dossier — {proj} cluster {idx}", ""])
+        # blind: no counts in the header (size and commit count are what the decoys are
+        # matched on; they are not evidence a rater should be handed up front)
+        lines = ([f"# Cluster {idx}"] if blind else [f"# Sinew dossier — {proj} cluster {idx}", ""])
         if not blind:
             lines += [f"- **span** {cl['span']}  **links** {cl['links']}  **mass** {cl['mass']}  "
                       f"**density** {cl['density']}  **hubness** {cl['hubness']}  "
@@ -309,9 +416,9 @@ def dossier(base: str, out_dir: str, repo: str | None = None, max_clusters: int 
                 lines += ["", f"```{_fence(f)}", src.rstrip(), "```", ""]
             else:
                 lines.append("")
-        lines += ["## Commits that edited two or more of these methods" if blind else
+        lines += ["## Recent commits that edited two or more of these methods" if blind else
                   "## Co-change commits (bound >=2 members)", ""]
-        for h in cc[-30:]:
+        for h in cc[-(10 if blind else 30):]:
             m = _msg(repo, h["sha"]) if repo else ""
             lines.append(f"- `{h['sha'][:10]}` i={h['i']} {', '.join(h['touched'])}"
                          + (f" — {m}" if m else ""))
@@ -332,7 +439,8 @@ def dossier(base: str, out_dir: str, repo: str | None = None, max_clusters: int 
         with open(os.path.join(out_dir, name), "w") as fh:
             fh.write("\n".join(lines))
         key.append({"file": name, "truth": truth, "kind": cl.get("kind"),
-                    "span": cl.get("span"), "outlier": cl.get("outlier")})
+                    "span": cl.get("span"), "commits": len(cc), "outlier": cl.get("outlier"),
+                    "match": cl.get("match")})
         written += 1
     if blind:
         with open(os.path.join(out_dir, f"{proj}.key.json"), "w") as fh:
@@ -350,9 +458,11 @@ def predicts(base: str, split: float = A.PARAMS["split"],
     """Cut history at `split`. From the snapshot at the cut and the PAST window compute, per
     method: past sinew strength (sum over its threaded co-change pairs of k x thickness),
     the unweighted past co-change strength (sum of k over all its pairs), past change
-    frequency, nloc and cc. Test whether sinew predicts FUTURE change frequency beyond those
-    baselines (partial Spearman, bootstrap CI). Methods gone by the end of history keep the
-    changes they accrued before vanishing; their number is reported."""
+    frequency, nloc, cc, call out-degree and parameter count. Test whether sinew predicts
+    FUTURE change frequency beyond those baselines (partial Spearman, cluster bootstrap by
+    file), and the INCREMENT: the sinew partial minus the unweighted co-change partial given
+    the same other controls, with a paired bootstrap interval. Methods gone by the end of
+    history keep the changes they accrued before vanishing; their number is reported."""
     commits = A._commits(base) if commits is None else commits
     if len(commits) < 10:
         return {"base": os.path.basename(base), "error": "too few commits"}
@@ -368,6 +478,7 @@ def predicts(base: str, split: float = A.PARAMS["split"],
     if not snap:
         return {"base": os.path.basename(base), "error": "no snapshot at cut"}
     M = A.methods_at_head(snap)
+    links = A.thread_links(M)
 
     past = [c for c in commits if c["i"] <= cut]
     fut = [c for c in commits if cut < c["i"] <= last_i]
@@ -381,7 +492,7 @@ def predicts(base: str, split: float = A.PARAMS["split"],
         if a in M and b in M:
             coch_x[a] += k
             coch_x[b] += k
-            thick = len(A.thread_keys(M[a], M[b]))
+            thick = len(A.thread_keys(links, a, b))
             if thick:
                 sinew_x[a] += k * thick
                 sinew_x[b] += k * thick
@@ -392,8 +503,12 @@ def predicts(base: str, split: float = A.PARAMS["split"],
     freq = [past_cc.get(mk, 0) for mk in keys]
     nloc = [M[mk]["nloc"] for mk in keys]
     cc = [M[mk]["cc"] for mk in keys]
+    calls = [M[mk]["n_calls_own"] for mk in keys]
+    IN = [M[mk]["IN"] for mk in keys]
     y = [fut_cc.get(mk, 0) for mk in keys]
-    full = [freq, coch, nloc, cc]
+    rest = [freq, nloc, cc, calls, IN]
+    full = [freq, coch, nloc, cc, calls, IN]
+    files = [mk[0] for mk in keys]
     n = len(keys)
 
     def lift(xs):
@@ -408,6 +523,18 @@ def predicts(base: str, split: float = A.PARAMS["split"],
     def _primary(idx):
         return A.partial_spearman([x[i] for i in idx], [y[i] for i in idx],
                                   [[z[i] for i in idx] for z in full])
+
+    def _baseline(idx):
+        return A.partial_spearman([coch[i] for i in idx], [y[i] for i in idx],
+                                  [[z[i] for i in idx] for z in rest])
+
+    def _increment(idx):
+        a, b = _primary(idx), _baseline(idx)
+        return None if a is None or b is None else a - b
+    all_idx = list(range(n))
+    prim, basel = _primary(all_idx), _baseline(all_idx)
+    inc = None if prim is None or basel is None else round(prim - basel, 4)
+    inc_ci = A.bootstrap_ci(_increment, n, bootstrap, seed, clusters=files)
     head_keys = {(r["file"], r["qualname"]) for r in head} if head is not None else None
     top_s, rest_s, lift_s = lift(x)
     top_c, rest_c, lift_c = lift(coch)
@@ -424,9 +551,15 @@ def predicts(base: str, split: float = A.PARAMS["split"],
         "sinew~future | cc (partial)": A.partial_spearman(x, y, [cc]),
         "sinew~future | freq (partial)": A.partial_spearman(x, y, [freq]),
         "sinew~future | cochange (partial)": A.partial_spearman(x, y, [coch]),
-        PRIMARY_PREDICT: A.partial_spearman(x, y, full),
-        PRIMARY_PREDICT + " ci95": A.bootstrap_ci(_primary, n, bootstrap, seed),
+        "sinew~future | freq,cochange,nloc,cc (partial)":
+            A.partial_spearman(x, y, [freq, coch, nloc, cc]),
+        PRIMARY_PREDICT: prim,
+        PRIMARY_PREDICT + " ci95": A.bootstrap_ci(_primary, n, bootstrap, seed, clusters=files),
         "cochange~future | freq,nloc,cc (partial)": A.partial_spearman(coch, y, [freq, nloc, cc]),
+        BASELINE_PREDICT: basel,
+        "increment": inc, "increment_ci95": inc_ci,
+        "increment_se": (round((inc_ci[1] - inc_ci[0]) / 3.92, 5)
+                         if inc_ci and inc_ci[1] > inc_ci[0] else None),
         "future_changefreq_top_decile": top_s, "future_changefreq_rest": rest_s, "lift": lift_s,
         "baseline_cochange_top_decile": top_c, "baseline_cochange_rest": rest_c,
         "baseline_lift": lift_c,
@@ -448,7 +581,7 @@ def _print_predicts(bases: list, split: float = A.PARAMS["split"]) -> None:
         print(f"  {p['base']:22} {f('sinew~future (raw)'):>9} {f('cochange~future (raw)'):>8} "
               f"{f('freq~future (raw)'):>8} {f(PRIMARY_PREDICT):>9} "
               f"{str(ci) if ci else 'n/a':>16} "
-              f"{f('cochange~future | freq,nloc,cc (partial)'):>9} "
+              f"{f(BASELINE_PREDICT):>9} "
               f"{(p['lift'] if p['lift'] is not None else 0):>5} "
               f"{(p['baseline_lift'] if p['baseline_lift'] is not None else 0):>5}")
 
@@ -496,7 +629,8 @@ def _load_study(path: str) -> dict:
 
 def study(sample_path: str, out_dir: str, recent: int = 500, emit_dossiers: bool = True,
           params: dict | None = None, restrict_language: bool = True,
-          rater: dict | None = None, rate_call=None) -> list:
+          rater: dict | None = None, rate_call=None, limit: int | None = None,
+          pilot: set | None = None) -> list:
     """Mine the recent history of every usable repository of the sample, analyse its sinews,
     emit dossiers for its CONCERN clusters (with member source and commit messages, read
     from the clone while it exists), then aggregate, pool, and write everything to
@@ -509,11 +643,15 @@ def study(sample_path: str, out_dir: str, recent: int = 500, emit_dossiers: bool
     language it was sampled as. With `rater` ({models, runs, effort}, from rater.json), each
     project's BLIND dossiers (concern, contract, decoy) are written to <out_dir>/rated/<project>
     while the clone exists, then rated by those models and scored, per project and pooled
-    (<out_dir>/rated/scorecard.json). Resumable via the run log."""
-    from open_source_repository_sampler import for_each, read_sample
+    (<out_dir>/rated/scorecard.json). Resumable via the run log. `limit` runs the first N
+    usable repositories only (a pilot, to see the instrument's yield before the full run).
+    `pilot` (default: the names in pilot-repositories.txt) marks repositories the method was
+    developed on; they are analysed and reported but excluded from every pooled figure."""
+    from open_source_repository_sampler import files as sfiles, for_each, read_sample
     from . import rate as rate_mod
 
     p = dict(A.PARAMS, **(params or {}))
+    pilot = {x.lower() for x in pilot} if pilot is not None else pilot_names()
     mines_dir = os.path.join(out_dir, "mines")
     os.makedirs(mines_dir, exist_ok=True)
     study_path = os.path.join(out_dir, "sinew-study.json")
@@ -527,7 +665,8 @@ def study(sample_path: str, out_dir: str, recent: int = 500, emit_dossiers: bool
             json.dump({"parameters": {**p, "recent": recent, "sample": sample_path,
                                       "restrict_language": restrict_language,
                                       "sensitivity_caps": list(SENSITIVITY_CAPS),
-                                      "rater": rater},
+                                      "rater": rater, "limit": limit,
+                                      "pilot_repositories": sorted(pilot)},
                        "environment": env, "projects": projects,
                        "pooled": pooled(projects) if projects else None,
                        "rating": rating_card}, fh, indent=2)
@@ -537,7 +676,7 @@ def study(sample_path: str, out_dir: str, recent: int = 500, emit_dossiers: bool
         langs = {repo.language} if restrict_language and repo.language else None
         mine_mod.mine(repo.path, base, recent=recent, langs=langs)
         ident = {"full_name": repo.full_name, "url": repo.url, "commit": repo.commit,
-                 "language": repo.language}
+                 "language": repo.language, "pilot": repo.full_name.lower() in pilot}
         try:
             head = A.head_rows(base)
             commits = A._commits(base)
@@ -564,10 +703,15 @@ def study(sample_path: str, out_dir: str, recent: int = 500, emit_dossiers: bool
             print(f"  {repo.full_name}: {n} blind dossiers for rating")
 
     usable = read_sample(sample_path)
-    print(f"sinew study: {len(usable)} usable repositories in {sample_path}, mining the most "
-          f"recent {recent} commits of each (deep clone at its pinned commit) -> {out_dir}",
-          flush=True)
-    for_each(sample_path, experiment, deep=True,
+    run_sample = sample_path
+    if limit:
+        usable = usable[:limit]
+        run_sample = os.path.join(out_dir, f"sample-first-{limit}.csv")
+        sfiles.write_csv(run_sample, usable)
+    print(f"sinew study: {len(usable)} usable repositories in {sample_path}"
+          f"{f' (pilot: first {limit})' if limit else ''}, mining the most recent {recent} "
+          f"commits of each (deep clone at its pinned commit) -> {out_dir}", flush=True)
+    for_each(run_sample, experiment, deep=True,
              run_log=os.path.join(out_dir, "run-log.jsonl"))
     ordered = [rows[r["full_name"]] for r in usable if r["full_name"] in rows]
     _print_aggregate(ordered)

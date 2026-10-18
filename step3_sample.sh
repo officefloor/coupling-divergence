@@ -23,7 +23,10 @@
 #     and records it in the derivation);
 #   - >= 50 methods in >= 15 source files with a method, so a near-empty repository cannot take
 #     a slot;
-#   - the author's own ecosystem excluded (the conflict-of-interest guard).
+#   - the author's own ecosystem excluded (the conflict-of-interest guard);
+#   - seed 2. Seed 1 was used for the pilot draw the method was developed against (its
+#     repositories are listed in pilot-repositories.txt and are never pooled); the confirmatory
+#     sample is a fresh draw. Change the seed ONLY before the sample is drawn, and record why.
 # Extra flags are passed straight through (a later flag overrides an earlier one), e.g. a
 # different --seed for an independent sample. Interrupted? Re-run the same command to resume.
 set -euo pipefail
@@ -48,7 +51,7 @@ CMD=("$SAMPLER" sample
      --langs java
      --tiers high,mid,low
      --target 30
-     --seed 1
+     --seed 2
      --pool 400
      --min-functions 50
      --min-files-with-functions 15
@@ -60,9 +63,13 @@ echo "==> ${CMD[*]}"
 "${CMD[@]}"
 
 NEXT="./step4_run.sh --sample $OUT/open-source-repository-sample.csv"
+PILOT="./step4_run.sh --sample $OUT/open-source-repository-sample.csv --limit 5 --out results/pilot-yield"
 if [ "$VENV" != ".venv" ]; then
   NEXT="VENV=$VENV $NEXT"
 fi
 echo
-echo "Step 3 (sample) complete. Next, run the experiment on it:"
+echo "Step 3 (sample) complete. First check the instrument's YIELD on the first five repositories"
+echo "(heavy bonds, concern clusters, blind dossiers) before committing to the full run:"
+echo "    $PILOT"
+echo "then run the experiment on the whole sample:"
 echo "    $NEXT"

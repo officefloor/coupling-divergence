@@ -115,9 +115,28 @@ _NAME_FIRST = {"go", "ts", "tsx"}                                           # na
 _TYPE_FIRST = {"java", "c", "h", "cc", "cpp", "cxx", "hh", "hpp", "cs", "m", "mm", "groovy"}
 _UNTYPED = {"js", "jsx", "rb", "lua", "php"}
 
-_MODIFIERS = {"final", "const", "volatile", "ref", "out", "in", "params", "register",
-              "static", "mut", "inout", "readonly", "var", "val", "vararg", "crossinline",
-              "noinline", "unowned", "weak", "borrowing", "consuming"}
+# Parameter modifiers, PER LANGUAGE. A word that is a modifier in one language is an ordinary
+# parameter name in another (`in`, `out`, `ref`, `var` and `val` are common Java names), so the
+# set a language's declarations are cleaned with holds only that language's modifiers.
+_MODS_BY_LANG = {
+    "java": {"final"},
+    "groovy": {"final", "def"},
+    "scala": {"final", "val", "var", "implicit"},
+    "c": {"const", "volatile", "register", "static", "restrict"},
+    "cs": {"ref", "out", "in", "params", "readonly", "this", "scoped"},
+    "kt": {"vararg", "crossinline", "noinline", "val", "var"},
+    "swift": {"inout", "unowned", "weak", "borrowing", "consuming"},
+    "rs": {"mut"},
+}
+_MODS_LANG_BY_EXT = {"kts": "kt", "h": "c", "hh": "c", "hpp": "c", "cc": "c", "cpp": "c",
+                     "cxx": "c", "m": "c", "mm": "c"}
+# The union, used only to clean TYPE text (a modifier never names a type).
+_MODIFIERS = set().union(*_MODS_BY_LANG.values())
+
+
+def modifiers_for(ext: str) -> set:
+    """The parameter modifiers of the language with this file extension."""
+    return _MODS_BY_LANG.get(_MODS_LANG_BY_EXT.get(ext, ext), set())
 
 # Types that name nothing in particular: a parameter of such a type is matched by NAME.
 # Case-sensitive, across languages (Java / C# / Python / Go / Rust / TS / Kotlin / Swift).
@@ -187,7 +206,8 @@ def parse_parameter(full: str, ext: str) -> tuple[str | None, str | None]:
         return (ids[-1] if ids else None), None
     toks = re.findall(r"[A-Za-z_$][A-Za-z0-9_$]*|\.\.\.|\[\s*\]|[*&.@]", _split_default(text))
     toks = [t.replace(" ", "") for t in toks]
-    # drop annotation names (`@ Named`) and modifiers
+    # drop annotation names (`@ Named`) and THIS language's modifiers
+    mods = modifiers_for(ext)
     clean, skip = [], False
     for t in toks:
         if t == "@":
@@ -196,7 +216,7 @@ def parse_parameter(full: str, ext: str) -> tuple[str | None, str | None]:
         if skip:
             skip = False
             continue
-        if t in _MODIFIERS:
+        if t in mods:
             continue
         clean.append(t)
     toks = clean
@@ -390,7 +410,35 @@ def method_shapes(root: str, include_tests: bool = False,
     if not raw:
         return []
 
+    # Identity. Overloads share (file, qualname) downstream, but lizard also gives the SAME
+    # name and signature to every enum-constant body and every nested-class method of one
+    # name, which would merge whole state machines (74 `read` bodies of one enum) into one
+    # phantom method. Functions of one file with identical name AND signature are told apart
+    # by their order of appearance (`read#1`, `read#2`, ...); the identity shifts if one is
+    # inserted or removed before another, a documented limitation.
+    sig_count: dict = {}
+    for r in raw:
+        if not _is_anon(r):
+            sk = (r["file"], r["qual"], tuple(t or n for n, t in zip(r["params"], r["ptypes"])))
+            r["_sig"] = sk
+            sig_count[sk] = sig_count.get(sk, 0) + 1
+    seen: dict = {}
+    for r in raw:
+        sk = r.get("_sig")
+        if sk is not None and sig_count[sk] > 1:
+            seen[sk] = seen.get(sk, 0) + 1
+            r["qual"] = f"{r['qual']}#{seen[sk]}"
+
     names = {r["short"] for r in raw if not _is_anon(r)}
+    # how many functions define a callee name, and which names each file defines: a call to a
+    # name defined ONCE in the project, or defined in the caller's own file, resolves to a
+    # known target (`strict`); `get` or `add` defined in twenty classes does not
+    name_count: dict = {}
+    file_names: dict = {}
+    for r in raw:
+        if not _is_anon(r):
+            name_count[r["short"]] = name_count.get(r["short"], 0) + 1
+            file_names.setdefault(r["file"], set()).add(r["short"])
     # the signature of an anonymous function on a line its parent owns is not a call
     anon_sigs = {(r["file"], r["start"], r["short"]) for r in raw if _is_anon(r) and r["short"]}
     owned = _owned_lines(raw)
@@ -421,9 +469,11 @@ def method_shapes(root: str, include_tests: bool = False,
                     continue
             kind = "internal" if callee in names else "external"
             fwd = [f for f in (forwarded(a, pset) for a in args) if f]
+            strict = kind == "internal" and (callee in file_names.get(r["file"], ())
+                                             or name_count.get(callee, 0) == 1)
             calls.append({"callee": callee, "args": len(args), "fwd": fwd,
                           "kind": kind, "via": "lexical", "target": None,
-                          "receiver": None, "own": kind == "internal"})
+                          "receiver": None, "own": kind == "internal", "strict": strict})
         keys = [match_key(n, t) for n, t in zip(r["params"], r["ptypes"])]
         key_of = dict(zip(r["params"], keys))
         roll = extract_common.rollups(calls, len(r["params"]))
@@ -436,5 +486,6 @@ def method_shapes(root: str, include_tests: bool = False,
             "calls": calls,
             **roll,
             "fwd_keys": sorted({key_of[n] for n in roll["fwd_names"]}),
+            "fwd_keys_strict": sorted({key_of[n] for n in roll["fwd_names_strict"]}),
         })
     return out

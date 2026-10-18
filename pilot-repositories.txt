@@ -1,0 +1,23 @@
+# Repositories the sinew method was DEVELOPED AGAINST (the hand-curated list and the seed-1
+# draw used while the construct was being defined and redefined, 16-18 October 2026). They are
+# analysed and reported if they appear in a sample, but `sinew study` marks them `pilot` and
+# excludes them from every pooled estimate and decision (sinew_study.pooled). One owner/name
+# per line; `#` starts a comment.
+alibaba/nacos
+apache/commons-lang
+FasterXML/jackson-core
+fuzhengwei/small-spring
+google/dagger
+google/gson
+google/guava
+JakeWharton/butterknife
+jhy/jsoup
+junit-team/junit4
+lenve/vhr
+mockito/mockito
+Querz/mcaselector
+robert-bor/aho-corasick
+spring-cloud/spring-cloud-gateway
+square/okhttp
+square/retrofit
+vaadin/hilla

@@ -9,12 +9,15 @@ reconsidering *before* they strengthen.
 The philosophy and the full method are in **[`paper/SINEW.md`](paper/SINEW.md)**. In short:
 
 - **A thread link is data sent and consumed.** Two methods are *thread-linked* when a
-  parameter one of them **forwards** (hands on to another call) is a parameter the other
-  **declares**. Parameters are matched on their **key**: the declared **type** when the type
-  identifies something (`Order`, `RequestContext`), else the **name** — so an untyped language
-  is matched by name, and a parameter of a universal type (`String`, `int`, `List<T>`, a type
-  variable) is matched by name too, because `String` names nothing in particular. No type
-  resolver or call graph is needed, so every language lizard parses is measured the same way.
+  parameter one of them **forwards** (hands on to a call) reaches a method that **declares**
+  it: directly, when the call resolves to that method, or along a chain of such hops in which
+  every intermediary declares the parameter and forwards it on. A key both merely declare, or
+  that one forwards somewhere else, is not a link. Parameters are matched on their **key**:
+  the declared **type** when the type identifies something (`Order`, `RequestContext`), else
+  the **name** — so an untyped language is matched by name, and a parameter of a universal
+  type (`String`, `int`, `List<T>`, a type variable) is matched by name too, because `String`
+  names nothing in particular. Calls are resolved by name, same file first; no type resolver
+  is needed, so every language lizard parses is measured the same way.
 - **A bond is a thread link that co-changes.** A sinew = **threaded × co-changing × heavy**.
   It builds on *logical / evolutionary coupling* (Gall 1998, Zimmermann 2004) and adds
   **thickness** (the number of parameter keys threaded between the pair); heaviness is
@@ -34,64 +37,116 @@ This repository is the **method**, not the data. It contains only the experiment
 documentation; nothing is precomputed. All output is written under a git-ignored results
 directory and is published as the paper's ancillary content, not committed here.
 
-## Pre-registered hypotheses and analysis plan
+## Hypotheses, analysis plan and decision rules
 
-Fixed before the sample is drawn. Every threshold below is in `sinew/analyze.py` (`PARAMS`)
-and is written into the results file with the environment that produced them.
+Every threshold below is in `sinew/analyze.py` (`PARAMS`) and is written into the results
+file with the environment that produced them; `sinew_study.pooled` applies each decision rule
+mechanically and writes the verdict (`decisions`) into the results, so no judgement is made
+after the numbers are seen.
+
+**Provenance, stated plainly.** This plan was NOT registered before any data was seen. The
+construct was developed, and redefined three times, on 16-18 October 2026 against a pilot: a
+hand-curated list of Java repositories and a seed-1 stratified draw. Those repositories are
+listed in `pilot-repositories.txt`; if any of them appears in a sample it is analysed and
+reported but excluded from every pooled estimate and every decision. The confirmatory sample
+is a fresh draw (seed 2, `step3_sample.sh`). Register this file's hypotheses externally with a
+timestamp (for example on OSF) *before* running `./step3_sample.sh`, and cite the registration;
+until then the study is confirmatory in design only, not in record.
 
 - **H1 (threading is entangling beyond the known causes).** Across methods alive at the pinned
   commit, the forward ratio (share of a method's parameters it threads into the project's own
   code) is positively associated with co-change degree *after partialling out change
-  frequency, size (nloc) and cyclomatic complexity together*. Statistic: partial Spearman with
-  a bootstrap 95% interval per project; pooled across projects by random effects on Fisher's z.
-  Decision: H1 holds if the pooled interval excludes zero and the sign is positive in a
-  majority of projects. Sensitivities: the unrestricted forward ratio (guards and library
-  calls counted), and the pair cap at 10, 20 and 50 changed methods.
-- **H2 (sinews are structure, not chance).** The observed heavy-bond mass, the maximum span
-  and the number of concern clusters exceed what the fixed-marginal permutation null produces
-  (one-sided p from 100 draws per project). Decision: H2 holds in a project when p < 0.05 for
-  heavy mass; the paper reports the share of projects in which it holds.
+  frequency, size (nloc), cyclomatic complexity, internal call out-degree and parameter count
+  together*. The last two matter: a method that forwards must call, and a method with more
+  parameters has more to forward, so without them the partial re-tests call coupling and
+  interface size. Statistic: partial Spearman per project with a 95% interval from a cluster
+  bootstrap that resamples *files* (methods of one file are not independent draws); pooled
+  across projects by random effects on Fisher's z. Smallest effect of interest: a pooled
+  partial correlation of 0.1 (`sesoi`). Decision: H1 holds if the pooled interval lies above
+  zero, the pooled estimate is at least 0.1, and the sign is positive in a majority of
+  projects. Reported beside it: the three-control partial, the *strict* forward ratio (only
+  callees that resolve: defined in the caller's file or once in the project), the unrestricted
+  ratio (guards and library calls counted), the rival predictor (out-degree with the three
+  controls), and the pair cap at 10, 20 and 50 changed methods.
+- **H2 (threading picks out the co-changing pairs, beyond file locality).** The observed
+  heavy-bond mass exceeds what a *within-file* permutation null produces: curveball trades
+  confined to one file at a time, so every commit keeps its size per file, every method its
+  change frequency, and only *which* methods of a file change together is randomised. A null
+  that keeps only the margins is beaten by same-file locality alone, the best-known regularity
+  in change histories, and is reported as a secondary. One-sided p from 100 draws per project
+  (so the smallest p is about 0.01); combined over projects by Stouffer's method, with the
+  share of projects below 0.05 tested against the 5% expected by chance (binomial). Decision:
+  H2 holds if the Stouffer p for heavy mass under the within-file null is below 0.05. Note the
+  null's property: a file whose methods are always edited wholesale leaves it nothing to
+  permute, so a sinew that is simply "the whole file" cannot be found rare here; the
+  fixed-marginal null still can.
+- **H2b (the counterfactual).** Among pairs where one method calls the other, the share that
+  co-change (k ≥ 2) is compared between thread-linked pairs and pairs that pass no parameter
+  along, as a risk ratio pooled by random effects on the log scale. This is the comparison the
+  thread-link construct must win to add anything to plain call coupling; it is reported, not a
+  decision criterion.
 - **H3 (sinew strength has predictive value).** Measured at a cut 70% through the mined
-  history, a method's sinew strength (sum over its threaded co-change pairs of k × thickness)
-  predicts its change frequency in the remaining 30% *beyond past change frequency, unweighted
-  past co-change strength, nloc and cyclomatic complexity*. Decision: the pooled partial
-  Spearman interval excludes zero and is positive. The unweighted co-change baseline is
-  reported beside it; only the increment is evidence for the thickness weighting.
+  history, a method's sinew strength (sum over its thread-linked co-change pairs of k ×
+  thickness) predicts its change frequency in the remaining 30% *beyond past change frequency,
+  unweighted past co-change strength, nloc, cyclomatic complexity, out-degree and parameter
+  count*. The increment is tested directly: the sinew partial minus the unweighted co-change
+  partial given the same other controls, with a paired file-cluster bootstrap interval per
+  project, pooled by random effects. Decision: H3 holds if the pooled sinew partial's interval
+  lies above zero with an estimate of at least 0.1 *and* the pooled increment's interval lies
+  above zero. A positive sinew partial with a null increment means co-change count predicts,
+  not thickness.
 - **Span verdict validation.** The span ≥ 4 rule is a rule, not a result. It is checked by a
-  blind rating of dossiers in which concern clusters are mixed with small (contract) clusters
-  and decoys (co-changing methods that thread nothing), with the truth held in a key file.
+  blind rating of dossiers in which concern clusters (span ≥ 4) are mixed with contract
+  clusters (heavy, thread-linked, span ≤ 3) and decoys (co-changing methods that thread
+  nothing), each decoy matched to a concern cluster on size and on number of co-change commits.
+  The primary contrast is concern against contract: both are heavy and both are threaded, so
+  only the span differs. Concern against decoy is secondary and tests whether threading itself
+  is visible to a rater. The truth is held in a key file written beside the dossiers.
 
-Everything else the code prints (typology, the `relate` and `tangle` views) is descriptive
-or exploratory and is labelled so.
+Everything else the code prints (typology, the heavy-bond quantile rule, the `relate` and
+`tangle` views) is descriptive, a sensitivity, or exploratory, and is labelled so. The paper
+should also report yield: the number of projects with any heavy bond, with any concern
+cluster, and the number of informative commits (commits that change at least one method) in
+each window.
 
 ### Rating the span verdict with AI raters
 
 `sinew rate` has one or more models read each blind dossier and answer one neutral question:
 would you consolidate the data these methods pass around? The prompt never uses the method's
-vocabulary, the blind dossiers carry no instrument metrics, the decision is a structured field
-asked for before the justification, and every rating is logged with the model, the prompt
-hash, the request id, the raw response and the justification, so anyone can audit or re-run it.
+vocabulary, the blind dossiers carry no instrument metrics and no size or commit counts in
+their header (they list the members and the ten most recent co-change commits), the decision
+is a structured field asked for before the justification, and every rating is logged with the
+model, the prompt hash, the request id, the model that actually served it, the raw response
+and the justification, so anyone can audit or re-run it.
 
 ```
 sinew rate --check --save results/rater-check --models claude-opus-5-5   # step 2: verify + save
-sinew dossier <base> --repo <checkout> --blind -o rated/<project>        # concern + contract + decoy
+sinew dossier <base> --repo <checkout> --blind -o rated/<project>        # concern + contract + matched decoy
 sinew rate rated/<project>                                               # raters from rater.json
+sinew rate rated/<project> --human-template                              # a sheet for human raters
 sinew rate rated/<project> --score                                       # unblind: scorecard.json
 ```
 
-`--check` rates the planted history (`sinew/planted.py`) first: a rater that cannot tell the
-planted chain from the planted decoy is rejected before it rates anything real, and the
-raters that pass are saved to `rater.json` for `sinew study --rate`. Rating and scoring are
-separate so a dossier set can be rated before anyone opens the key.
-The scorecard gives, per model, the share of concern, contract and decoy dossiers rated
-"consolidate" (the concern-minus-decoy gap is the discriminant validity of the verdict), each
-model's self-consistency across runs, and Cohen's kappa between models. Different model
-families count as independent raters; repeated runs of one model do not. An AI rater is an
-instrument, not ground truth: report its agreement with a human-rated subset of 20 to 30
-dossiers. `rate` needs the optional pinned dependency (`pip install 'sinew[rate]'`) and
-Anthropic credentials in the environment; it defaults to `claude-opus-5-5` at high effort,
-with Anthropic's server-side default fallback so a safety decline becomes a rating by the
-fallback model (recorded as `served_by`) rather than a gap.
+`--check` rates the planted history (`sinew/planted.py`: five chains, two contracts, five
+matched decoys) first. The gate is fixed in `rate.GATE`: a rater must say "consolidate" for at
+least 80% of the planted chains and at most 20% of the planted decoys, with no errors. The
+probability that a coin-flip rater passes that gate is computed exactly (0.035 for five and
+five) and printed with the result, so the gate's strength is on record. The raters that pass
+are saved to `rater.json` for `sinew study --rate`. Rating and scoring are separate so a dossier
+set can be rated before anyone opens the key.
+
+The scorecard gives, per rater, the share of concern, contract and decoy dossiers rated
+"consolidate"; the **concern-minus-contract gap is the test of the span rule** and the
+concern-minus-decoy gap is the test that threading is visible at all; each model's
+self-consistency across runs; and Cohen's kappa between raters. A rating produced by
+Anthropic's server-side fallback (a safety decline re-run on the default model) is scored as
+its own rater, `requested -> served`, never mixed into the requested model's rates. Two models
+from one vendor are not independent raters; their kappa is agreement, not inter-rater
+reliability. An AI rater is an instrument, not ground truth: `--human-template` writes
+`human-ratings.csv` beside the dossiers for a human subset of 20 to 30, which `--score` scores
+as raters named `human:<id>` and includes in the kappa table. `rate` needs the optional pinned
+dependency (`pip install 'sinew[rate]'`) and Anthropic credentials in the environment; it
+defaults to `claude-opus-5-5` at high effort.
 
 ## Replicate the experiment — five steps
 
@@ -99,6 +154,7 @@ fallback model (recorded as `served_by`) rather than a gap.
 ./step1_setup.sh                 # pinned, vendored dependencies (runs ./setup.sh)
 ./step2_rater.sh                 # choose + VERIFY the AI raters on planted ground truth -> rater.json
 ./step3_sample.sh                # draw the sample of Java repositories -> sample/
+./step4_run.sh --limit 5 --out results/pilot-yield   # PILOT: the instrument's yield on 5 repositories
 ./step4_run.sh                   # mine + analyse every usable repository; rate blind dossiers
 ./step5_analyse.sh results/<date>   # results → the paper's tables
 ```
@@ -113,11 +169,12 @@ git-ignored).
 
 Step 2 runs **first among the judgment calls**: it has the chosen model (default
 `claude-opus-5-5`) rate the blind dossiers of a planted history whose answer is known, prints
-the scorecard, and saves the raters to `rater.json` only if each told the planted chain from
-the decoy. Step 4 reads `rater.json`, so the same raters, runs and effort carry through the
+the scorecard with the gate's chance-pass probability, and saves the raters to `rater.json`
+only if each rated at least 80% of the planted chains and at most 20% of the matched decoys
+"consolidate". Step 4 reads `rater.json`, so the same raters, runs and effort carry through the
 study; `./step2_rater.sh --skip` runs the study without AI rating. Commit `rater.json` with the
 sample. `./step2_rater.sh --help`, `./step4_run.sh --help` (`--sample`, `--out`, `--recent`,
-`--lib-dir`, `--no-rate`) and `sinew study --help` (`--null`, `--bootstrap`,
+`--lib-dir`, `--no-rate`, `--limit`) and `sinew study --help` (`--null`, `--bootstrap`,
 `--all-languages`, `--rate`) list the options.
 
 ## What is recorded, per method, at every commit
@@ -130,11 +187,13 @@ every outgoing call with its argument count, which of the method's own parameter
 **forwards** (`fwd`, as a bare identifier or the value of a named argument) and its kind
 (internal / external); the rollups `out_args_*`, `n_calls_*`, and the forward metrics
 `fwd_args`, `fwd_params`, `fwd_ratio`, `fwd_names`, `fwd_keys` (over threading calls:
-internal callees that are not guards, loggers or formatters) with their unrestricted twins
-`*_any`; and whether this commit changed the method and by how many added lines. Changes are
+internal callees that are not guards, loggers or formatters), their unrestricted twins `*_any`
+and their strict twins `*_strict` (callees that resolve: defined in the caller's file or once
+in the project); and whether this commit changed the method and by how many added lines. Changes are
 detected ignoring whitespace and blank lines, so a reformat is not a change. Anonymous
 functions and Java anonymous-class methods belong to the method that encloses them; overloads
-share one identity and take the widest overload's shape. The derived panel
+share one identity and take the widest overload's shape; same-name, same-signature functions
+of one file (enum-constant bodies) are separate identities (`read#1`, `read#2`). The derived panel
 (`sinew analyze <base> -o panel.csv`) adds per-commit deltas.
 
 ## The sample
@@ -240,13 +299,28 @@ sinew tangle  <base>                # EXPLORATORY: edge-weight ladder + param-gr
   methods present at the cut were gone by the end.
 - **Co-change granularity differs between projects.** A merge-based history walked
   first-parent yields pull-request-sized units; a squash or rebase history yields small ones.
-  Each project's commit-size distribution, calendar span and the share of multi-method commits
-  the cap excludes are recorded, and the main counts are re-run at caps of 10, 20 and 50.
+  Each project's commit-size distribution, calendar span, number of informative commits and
+  the share of multi-method commits the cap excludes are recorded, and the main counts are
+  re-run at caps of 10, 20 and 50. The sampler's commit criterion counts every ancestor while
+  the mine walks first-parent, so a merge-heavy repository may not fill the 500-commit window;
+  the window actually mined is recorded per project.
+- **Call resolution is lexical.** A callee is matched by name: in the caller's own file first,
+  else anywhere in the project. A common name (`process`, `add`) in several classes is
+  ambiguous, and a library call to a name the project also defines counts as internal. The
+  strict forward ratio and the strict thread links (same-file or unique callee) are the
+  sensitivity for this.
 - **Types are as lizard reports them.** Java generics are erased (`List<Order>` arrives as
   `List`, a universal type, so such a parameter is matched by name); Go's grouped parameters
   (`a, b int`) leave the first untyped. The share of parameter keys that are types is recorded
   per project.
-- **Identity is (file, qualified name).** A renamed or moved method starts a new thread.
+- **Identity is (file, qualified name), plus an ordinal for same-signature duplicates.** A
+  renamed or moved method starts a new thread. Overloads share one identity. Functions of one
+  file with the same name *and* signature (every enum-constant body, every nested-class method
+  of one name) are told apart by order of appearance (`read#1`, `read#2`); inserting or
+  removing one shifts the identities after it in that file.
+- **The within-file null cannot see whole-file structure.** A file whose methods always
+  change together leaves nothing to permute within it, so H2 is conservative for small files
+  edited wholesale; the fixed-marginal null is reported beside it for that case.
 - **Name-only call resolution** backs the exploratory `relate` and `tangle` views, not the
   study's claims.
 
@@ -278,11 +352,17 @@ independently inspected and the whole experiment re-run by anyone.
 . .venv/bin/activate && python -m unittest discover -s tests -q
 ```
 
-The suite includes a ground-truth test: a synthetic history with a planted four-method chain
-that threads `Order` and `Ctx` and co-changes eight times, a planted pair that co-changes as
-often but threads nothing, and a planted pair that threads but never changes. The chain must
-come out as the one heavy span (a concern), with a null p below 0.1; neither of the others may
-form a bond.
+The suite includes a ground-truth test: a synthetic history (`sinew/planted.py`) with five
+planted four-method chains that each thread two types and co-change eight times, two planted
+heavy pairs (contracts), five planted pairs that co-change as often but thread nothing, a
+planted pair that threads but never changes, and bystander methods in each chain file so the
+within-file null has something to permute. The chains must come out as the five concern
+spans and the contracts as the two cohesion spans, with heavy-mass p below 0.1 under both
+nulls; none of the decoys may form a bond. Further tests pin the parts the review found
+fragile: parameter names that are modifiers in another language (`JsonReader in`), same-name
+same-signature bodies kept apart, a shared parameter name that is *not* a link unless the
+forward reaches the partner, the within-file curveball's invariants, the cluster bootstrap,
+the combined p-values, and the rater gate's chance-pass probability.
 
 ## Layout
 

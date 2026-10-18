@@ -60,10 +60,16 @@ def rollups(calls: list, n_params: int) -> dict:
       fwd_ratio   fwd_params / params  (1.0 = every parameter is handed onward; 0 if none)
       fwd_names   the forwarded parameter names (the identifiers this method threads)
       *_any       the same three over EVERY call, guards and library calls included
+      *_strict    the same three over threading calls whose callee RESOLVES: a name defined
+                  in the caller's own file or exactly once in the project (`strict` on the
+                  edge), so `list.add(x)` in a project that defines twenty `add`s is not a
+                  forward into the project's own code
     """
     thread = [c for c in calls if c["kind"] == "internal" and c["callee"] not in GUARD_CALLEES]
+    strict = [c for c in thread if c.get("strict")]
     fwd_names = _fwd_names(thread)
     fwd_any = _fwd_names(calls)
+    fwd_strict = _fwd_names(strict)
     return {
         "out_args_own": sum(c["args"] for c in calls if c["kind"] == "internal"),
         "out_args_ext": sum(c["args"] for c in calls if c["kind"] == "external"),
@@ -79,4 +85,8 @@ def rollups(calls: list, n_params: int) -> dict:
         "fwd_params_any": len(fwd_any),
         "fwd_ratio_any": round(len(fwd_any) / n_params, 3) if n_params else 0.0,
         "fwd_names_any": fwd_any,
+        "fwd_args_strict": sum(len(c.get("fwd", ())) for c in strict),
+        "fwd_params_strict": len(fwd_strict),
+        "fwd_ratio_strict": round(len(fwd_strict) / n_params, 3) if n_params else 0.0,
+        "fwd_names_strict": fwd_strict,
     }

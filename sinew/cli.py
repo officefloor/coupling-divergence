@@ -104,6 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     ss.add_argument("--rater-config", default=None, help="rater configuration (default rater.json)")
     ss.add_argument("--null", type=int, default=None, help="permutation-null draws per project")
     ss.add_argument("--bootstrap", type=int, default=None, help="bootstrap resamples")
+    ss.add_argument("--limit", type=int, default=None,
+                    help="PILOT: run the first N usable repositories only, to see the yield "
+                         "(heavy bonds, concern clusters) before the full run")
 
     sp = sub.add_parser("predict", help="predictive-value test: does PAST sinew predict FUTURE "
                         "change beyond past frequency, co-change, size and complexity?")
@@ -138,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
                          "`sinew study` and ./step4_run.sh use them")
     rt.add_argument("--config", default=None,
                     help="rater configuration file (default rater.json)")
+    rt.add_argument("--human-template", action="store_true",
+                    help="write <dossier-dir>/human-ratings.csv for human raters to fill in; "
+                         "--score then scores them as raters named human:<id>")
 
     args = ap.parse_args(argv)
     deps.validate(args.lib_dir)                 # fail closed unless pinned deps are present
@@ -189,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 2
             sinew_mod.study(args.sample, out, args.recent, emit_dossiers=not args.no_dossiers,
                             params=params, restrict_language=not args.all_languages,
-                            rater=rater)
+                            rater=rater, limit=args.limit)
         else:
             print(f"no sample at {args.sample}: draw one with ./step3_sample.sh, or pass "
                   f"--sample <csv> (or --bases <base ...> to aggregate existing mines)")
@@ -209,7 +215,9 @@ def main(argv: list[str] | None = None) -> int:
                                              "per_model": card["per_model"]}, args.config)
                 print(f"saved raters -> {path}")
             return 0 if card["passed"] else 1
-        if args.score:
+        if args.human_template:
+            print(f"human rating sheet -> {rate_mod.human_template(args.dossier_dir)}")
+        elif args.score:
             rate_mod.score(args.dossier_dir)
         else:
             rate_mod.rate(args.dossier_dir, models, args.runs, effort=args.effort,
