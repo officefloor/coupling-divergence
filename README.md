@@ -271,6 +271,8 @@ The clone is then deleted, so disk use stays at one repository. Everything lands
   predictive test), and `pooled` (the random-effects estimates and the H2 tallies);
 - `clusters.jsonl` — every heavy-bond cluster of every project, as data;
 - `mines/` — the raw mines; `dossiers/` — the concern-cluster dossiers; `run-log.jsonl`;
+  `clones/` — where each repository is cloned while it is mined (deleted afterwards; kept off
+  `/tmp`, which is often a small quota-limited tmpfs, as is the miner's worktree);
 - `rated/<project>/` — with `--rate`: the blind dossiers, their key, every rating with its
   justification (`ratings.jsonl`) and the project's scorecard; `rated/scorecard.json` pools
   them, and the study file carries the pooled card under `rating`.

@@ -185,7 +185,10 @@ def mine(repo: str, out_base: str, ref: str = "HEAD", first_parent: bool = True,
           f"{', ' + ','.join(sorted(langs)) if langs else ''}), "
           f"{len(done)} already done -> {commits_path} / {methods_path}", flush=True)
 
-    work = tempfile.mkdtemp(prefix="cdiv-mine-")
+    # the throwaway worktree lives BESIDE the mine, not under /tmp: a checkout of a large
+    # repository is hundreds of MB, and /tmp is often a small quota-limited tmpfs
+    work = tempfile.mkdtemp(prefix=os.path.basename(out_base) + ".wt-",
+                            dir=os.path.dirname(os.path.abspath(out_base)))
     wt = os.path.join(work, "wt")
     _git(repo, ["worktree", "prune"])
     added_wt = False

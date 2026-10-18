@@ -711,7 +711,10 @@ def study(sample_path: str, out_dir: str, recent: int = 500, emit_dossiers: bool
     print(f"sinew study: {len(usable)} usable repositories in {sample_path}"
           f"{f' (pilot: first {limit})' if limit else ''}, mining the most recent {recent} "
           f"commits of each (deep clone at its pinned commit) -> {out_dir}", flush=True)
-    for_each(run_sample, experiment, deep=True,
+    # clones go under the results directory, not /tmp (a deep clone can exceed a tmpfs quota)
+    clones = os.path.join(out_dir, "clones")
+    os.makedirs(clones, exist_ok=True)
+    for_each(run_sample, experiment, deep=True, work_dir=clones,
              run_log=os.path.join(out_dir, "run-log.jsonl"))
     ordered = [rows[r["full_name"]] for r in usable if r["full_name"] in rows]
     _print_aggregate(ordered)
