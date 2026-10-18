@@ -20,12 +20,6 @@ PINNED = {
     "open-source-repository-sampler": "0.1.0",
 }
 
-# Optional, pinned, NOT vendored by setup.sh: needed only by `sinew rate` (the AI rating of
-# blind dossiers). Install with `pip install 'sinew[rate]'`; validated when `rate` runs.
-OPTIONAL = {
-    "anthropic": "1.15.0",
-}
-
 DEFAULT_LIB = "lib"
 
 
@@ -63,16 +57,3 @@ def validate(override: str | None = None) -> None:
             + "\n".join(bad)
             + f"\n\nrun ./setup.sh (installs the pinned versions and vendors them into "
             f"{lib_dir(override)}/), or pass --lib-dir to point at an existing vendored set.")
-
-
-def validate_optional(name: str) -> None:
-    """Fail closed unless the optional dependency `name` is installed at its pinned version."""
-    want = OPTIONAL[name]
-    try:
-        got = _md.version(name)
-    except _md.PackageNotFoundError:
-        raise SystemExit(f"{name} is not installed (need exactly {want}): "
-                         f"pip install '{name}=={want}'  (or pip install 'sinew[rate]')")
-    if got != want:
-        raise SystemExit(f"{name} {got} installed, need exactly {want} for reproducible "
-                         f"ratings: pip install '{name}=={want}'")

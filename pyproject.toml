@@ -35,10 +35,6 @@ dependencies = [
     "open-source-repository-sampler==0.1.0",
 ]
 
-[project.optional-dependencies]
-# `sinew rate` only: the AI rating of blind dossiers. Pinned; validated when `rate` runs.
-rate = ["anthropic==1.15.0"]
-
 [project.scripts]
 sinew = "sinew.cli:main"
 

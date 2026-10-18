@@ -138,15 +138,16 @@ set can be rated before anyone opens the key.
 The scorecard gives, per rater, the share of concern, contract and decoy dossiers rated
 "consolidate"; the **concern-minus-contract gap is the test of the span rule** and the
 concern-minus-decoy gap is the test that threading is visible at all; each model's
-self-consistency across runs; and Cohen's kappa between raters. A rating produced by
-Anthropic's server-side fallback (a safety decline re-run on the default model) is scored as
-its own rater, `requested -> served`, never mixed into the requested model's rates. Two models
+self-consistency across runs; and Cohen's kappa between raters. A rating served by a
+different model than the one requested is scored as its own rater, `requested -> served`,
+never mixed into the requested model's rates. Two models
 from one vendor are not independent raters; their kappa is agreement, not inter-rater
 reliability. An AI rater is an instrument, not ground truth: `--human-template` writes
 `human-ratings.csv` beside the dossiers for a human subset of 20 to 30, which `--score` scores
-as raters named `human:<id>` and includes in the kappa table. `rate` needs the optional pinned
-dependency (`pip install 'sinew[rate]'`) and Anthropic credentials in the environment; it
-defaults to `claude-opus-5-5` at high effort.
+as raters named `human:<id>` and includes in the kappa table. `rate` runs each rating through
+`claude -p` on your Claude subscription (Claude Code on PATH and logged in; no API key), with
+no tools, settings or MCP servers, from an empty directory, and records the CLI version and
+session id with every rating; it defaults to `claude-opus-5-5` at high effort.
 
 ## Replicate the experiment — five steps
 

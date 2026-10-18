@@ -22,7 +22,8 @@ Design choices that keep the rating honest:
     looks at the key.
 
 An AI rater is an instrument, not ground truth: the paper should report its agreement with a
-human-rated subset. Requires the optional dependency `anthropic` (pinned in deps.OPTIONAL).
+human-rated subset. Rates through `claude -p` (Claude Code on the user's subscription); the
+CLI version is recorded with every rating.
 """
 from __future__ import annotations
 
@@ -132,39 +133,69 @@ def dossier_leaks(text: str) -> list:
     return sorted(found)
 
 
-def claude_caller(effort: str = DEFAULT_EFFORT):
-    """A `call(model, system, user) -> dict` over the Anthropic SDK: structured JSON output,
-    adaptive thinking at `effort`, and the server-side default fallback so a safety decline
-    is re-run on Anthropic's recommended model instead of becoming a missing rating."""
-    from . import deps
-    deps.validate_optional("anthropic")
-    import anthropic
+def claude_version() -> str | None:
+    """The Claude Code CLI's version string, recorded with every rating."""
+    import subprocess
+    try:
+        r = subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout.strip() or None
 
-    client = anthropic.Anthropic()
+
+def claude_caller(effort: str = DEFAULT_EFFORT, timeout: int = 900):
+    """A `call(model, system, user) -> dict` over `claude -p` on the user's Claude
+    subscription: structured JSON output and thinking at `effort`, with no tools, settings,
+    MCP servers or session on disk, run from an empty directory so no CLAUDE.md or memory
+    reaches the rater. API keys are removed from the environment so the subscription login
+    is what serves the rating. The session id stands in for the request id."""
+    import shutil
+    import subprocess
+    import tempfile
+    if not shutil.which("claude"):
+        raise SystemExit("`claude` (Claude Code) is not on PATH: install it and log in with "
+                         "`claude` (or `claude setup-token` for CLAUDE_CODE_OAUTH_TOKEN)")
+    version = claude_version()
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+    schema = json.dumps(SCHEMA)
 
     def call(model: str, system: str, user: str) -> dict:
+        cmd = ["claude", "-p", "--model", model, "--effort", effort,
+               "--system-prompt", system, "--json-schema", schema, "--output-format", "json",
+               "--tools", "", "--setting-sources", "", "--strict-mcp-config",
+               "--no-session-persistence"]
+        with tempfile.TemporaryDirectory(prefix="sinew-rate-") as cwd:
+            try:
+                p = subprocess.run(cmd, input=user, capture_output=True, text=True, cwd=cwd,
+                                   env=env, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                return {"error": f"timeout after {timeout}s", "cli": version}
         try:
-            r = client.beta.messages.create(
-                model=model, max_tokens=4096, system=system,
-                messages=[{"role": "user", "content": user}],
-                thinking={"type": "adaptive"},
-                output_config={"effort": effort,
-                               "format": {"type": "json_schema", "schema": SCHEMA}},
-                betas=["server-side-fallback-2026-07-01"], fallbacks="default",
-            )
-        except anthropic.RateLimitError as e:
-            return {"error": f"rate limited: {e.message}"}
-        except anthropic.APIStatusError as e:
-            return {"error": f"api {e.status_code}: {e.message}"}
-        except anthropic.APIConnectionError as e:
-            return {"error": f"connection: {e}"}
-        if r.stop_reason == "refusal":
-            cat = r.stop_details.category if r.stop_details else None
-            return {"error": f"refusal ({cat})", "request_id": r._request_id}
-        text = next((b.text for b in r.content if b.type == "text"), "")
-        return {"text": text, "request_id": r._request_id, "served_by": r.model,
-                "stop_reason": r.stop_reason,
-                "usage": {"input": r.usage.input_tokens, "output": r.usage.output_tokens}}
+            r = json.loads(p.stdout)
+        except ValueError:
+            return {"error": f"claude exit {p.returncode}: "
+                             f"{(p.stderr or p.stdout).strip()[:500]}", "cli": version}
+        sid = r.get("session_id")
+        if r.get("is_error") or p.returncode:
+            status = r.get("api_error_status")
+            return {"error": f"{r.get('subtype')}" + (f" api {status}" if status else "")
+                             + f": {str(r.get('result'))[:500]}",
+                    "request_id": sid, "cli": version}
+        if r.get("stop_reason") == "refusal":
+            return {"error": "refusal", "request_id": sid, "cli": version}
+        out = r.get("structured_output")
+        text = json.dumps(out) if out is not None else (r.get("result") or "")
+        used = r.get("modelUsage") or {}
+        served = model if model in used else max(
+            used, key=lambda m: used[m].get("outputTokens", 0), default=None)
+        u = r.get("usage") or {}
+        return {"text": text, "request_id": sid, "served_by": served, "cli": version,
+                "stop_reason": r.get("stop_reason"),
+                "usage": {"input": (u.get("input_tokens", 0)
+                                    + u.get("cache_creation_input_tokens", 0)
+                                    + u.get("cache_read_input_tokens", 0)),
+                          "output": u.get("output_tokens", 0)}}
     return call
 
 
@@ -270,6 +301,8 @@ def rate(dossier_dir: str, models: list | None = None, runs: int | None = None, 
                        "prompt_sha256_16": ph,
                        "rated_utc": datetime.datetime.now(datetime.timezone.utc)
                        .strftime("%Y-%m-%dT%H:%M:%SZ")}
+                if res.get("cli"):
+                    rec["cli"] = res["cli"]
                 if res.get("error"):
                     rec["error"] = res["error"]
                     rec["request_id"] = res.get("request_id")
@@ -343,9 +376,9 @@ def _load_dir(dossier_dir: str, prefix: str = ""):
 
 
 def _rater_id(r: dict) -> str:
-    """The rater a record is scored under: the model that actually served it. A rating the
-    server-side fallback produced is scored as its own rater (`requested -> served`), never
-    mixed into the requested model's rates."""
+    """The rater a record is scored under: the model that actually served it. A rating served
+    by another model than the one requested is scored as its own rater (`requested -> served`),
+    never mixed into the requested model's rates."""
     served = r.get("served_by")
     if served and served != r["model"]:
         return f"{r['model']} -> {served}"

@@ -21,8 +21,8 @@
 #   --work     work directory for the check  (default results/rater-check)
 #   --skip     record that the study runs WITHOUT AI rating (removes rater.json)
 #
-# Needs the optional pinned dependency (installed here into the venv) and Anthropic
-# credentials: ANTHROPIC_API_KEY in the environment, or an `ant auth login` profile.
+# Rates through `claude -p` on your Claude subscription: needs Claude Code on PATH, logged in
+# (`claude`, or CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`). API keys are not used.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -40,7 +40,7 @@ while [ $# -gt 0 ]; do
     --effort) EFFORT="$2"; shift 2 ;;
     --work)   WORK="$2"; shift 2 ;;
     --skip)   SKIP=1; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument: $1 (see --help)"; exit 2 ;;
   esac
 done
@@ -58,15 +58,11 @@ if [ "$SKIP" = 1 ]; then
   exit 0
 fi
 
-# the optional pinned dependency, exactly as sinew/deps.py OPTIONAL says
-PIN=$("$VENV/bin/python" -c 'from sinew import deps; print("anthropic==" + deps.OPTIONAL["anthropic"])')
-echo "==> installing $PIN"
-"$VENV/bin/python" -m pip install --quiet "$PIN"
-
-if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] && ! command -v ant >/dev/null 2>&1; then
-  echo "ERROR: no Anthropic credentials: export ANTHROPIC_API_KEY, or run \`ant auth login\`"
+if ! command -v claude >/dev/null 2>&1; then
+  echo "ERROR: \`claude\` (Claude Code) not on PATH: install it and log in with \`claude\`"
   exit 1
 fi
+echo "==> rating with $(claude --version) on your Claude subscription"
 
 CMD=("$VENV/bin/sinew" rate --check --save "$WORK" --models "$MODELS" --runs "$RUNS" --effort "$EFFORT")
 echo "==> ${CMD[*]}"

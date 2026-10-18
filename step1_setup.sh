@@ -21,7 +21,7 @@ if [ -n "${LIB_DIR:-}" ] && [ "$LIB_DIR" != "lib" ]; then
 fi
 
 echo
-echo "Step 1 (setup) complete. Next, choose and verify the AI raters (needs Anthropic credentials):"
+echo "Step 1 (setup) complete. Next, choose and verify the AI raters (needs Claude Code, logged in):"
 echo "    ${PREFIX}./step2_rater.sh                 # default rater claude-opus-5-5"
 echo "    ${PREFIX}./step2_rater.sh --skip          # run the study without AI rating"
 echo "then draw the sample (needs \`gh auth login\`):"
