@@ -3,16 +3,20 @@
 This is a data-collection instrument, not an analysis. For each commit on the chosen ref
 (first-parent by default, oldest first) it checks the tree out in a throwaway detached
 worktree, extracts every method's raw shape (extract.method_shapes, in any language: parameter
-names and count, complexity, the outgoing call edges with per-call argument counts and the
-parameters each call forwards unchanged, each callee tagged own/external), and records which
-methods the commit changed, from `git diff` against the parent. NOTHING is aggregated or derived here: class/file rollups, in-coupling, coupling
-divergence, the call graph and placement-over-time are all left to be reconstructed
-downstream from this raw table, so the same mine can be looked at many ways.
+names, types and match keys, complexity, the outgoing call edges with per-call argument counts
+and the parameters each call forwards, each callee tagged own/external), and records which
+methods the commit changed, from `git diff` against the parent -- ignoring whitespace-only
+and blank-line changes, so a reformat is not a change. NOTHING is aggregated or derived here:
+class/file rollups, in-coupling, the call graph and placement-over-time are all left to be
+reconstructed downstream from this raw table, so the same mine can be looked at many ways.
 
-Output is JSON Lines, append-only and resumable (a re-run skips commits already recorded):
+Output is JSON Lines, append-only and resumable (a re-run skips commits already recorded; the
+rows of a commit that was interrupted before its index row was written are discarded first,
+so a resumed mine never holds a commit twice):
 
   <out>.commits.jsonl   one row per commit -- sha, parent, author/commit time, index on the
-                        walked ref, method/file counts, and the ids of the methods it changed.
+                        walked ref, method/file counts, the files with a non-whitespace change,
+                        and the ids of the methods it changed.
   <out>.methods.jsonl   one row per (commit, method) -- the commit sha and index, the method's
                         identity and placement (file, qualname, name, line range), its shape
                         (params + complexity), its raw outgoing edges, and whether/how much
@@ -20,7 +24,11 @@ Output is JSON Lines, append-only and resumable (a re-run skips commits already 
 
 Method identity across commits is (file, qualname); a method moved to another file or
 renamed starts a new thread (a documented limitation, fine for an append-only codebase and
-flagged for repos with heavy refactoring).
+flagged for repos with heavy refactoring). Overloads share one identity.
+
+`langs` restricts the mine to the files of the given language keys (e.g. {"java"}), so a
+repository sampled as Java is measured on its Java and not on a JavaScript front end that
+happens to live beside it.
 """
 from __future__ import annotations
 
@@ -33,7 +41,7 @@ import subprocess
 import sys
 import tempfile
 
-from . import extract
+from . import discover, extract
 
 
 def _git(repo: str, args: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
@@ -69,13 +77,15 @@ _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 def changed_ranges(repo: str, parent: str | None, sha: str) -> dict | None:
     """{file -> [(lo, hi), ...]} of the NEW-side line ranges a commit touched, parsed from
-    `git diff --unified=0` against the parent. None means "no parent" (root commit): every
-    file is new, so the caller treats every method as changed. A pure-deletion hunk (no new
-    lines) is recorded as a zero-width touch at the line it followed, so the surrounding
-    method still reads as changed."""
+    `git diff --unified=0 -w --ignore-blank-lines` against the parent (so whitespace and
+    blank-line changes do not count). None means "no parent" (root commit): every file is
+    new, so the caller treats every method as changed. A pure-deletion hunk (no new lines) is
+    recorded as a zero-width touch at the line it followed, so the surrounding method still
+    reads as changed."""
     if parent is None:
         return None
-    out = _git(repo, ["diff", "--unified=0", "--no-color", "--no-renames", parent, sha]).stdout
+    out = _git(repo, ["diff", "--unified=0", "--no-color", "--no-renames", "-w",
+                      "--ignore-blank-lines", parent, sha]).stdout
     ranges: dict = {}
     cur: list | None = None
     for line in out.splitlines():
@@ -113,13 +123,39 @@ def _method_id(m: dict) -> list:
     return [m["file"], m["qualname"]]
 
 
+def _discard_orphans(methods_path: str, done: set) -> int:
+    """Truncate `methods_path` at the first row whose commit is not in `done`: the rows of a
+    commit interrupted before its index row was written. Rows are contiguous by commit, so
+    the orphans are a tail. Returns the number of bytes discarded."""
+    if not os.path.exists(methods_path):
+        return 0
+    cut = None
+    with open(methods_path, "rb") as fh:
+        pos = 0
+        for line in fh:
+            try:
+                sha = json.loads(line)["sha"]
+            except Exception:
+                sha = None
+            if sha not in done:
+                cut = pos
+                break
+            pos += len(line)
+    if cut is None:
+        return 0
+    size = os.path.getsize(methods_path)
+    with open(methods_path, "r+b") as fh:
+        fh.truncate(cut)
+    return size - cut
+
+
 def mine(repo: str, out_base: str, ref: str = "HEAD", first_parent: bool = True,
          include_tests: bool = False, max_commits: int | None = None,
-         recent: int | None = None) -> None:
+         recent: int | None = None, langs=None) -> None:
     """Walk the history and append the raw per-method mine to <out_base>.methods.jsonl and
-    the per-commit index to <out_base>.commits.jsonl (lizard, every language). Resumable:
-    commits already in the index are skipped."""
-    shaper = extract.method_shapes
+    the per-commit index to <out_base>.commits.jsonl (lizard, every language, or only the
+    languages in `langs`). Resumable: commits already in the index are skipped."""
+    exts = discover.exts_for(langs) if langs else None
     commits_path = out_base + ".commits.jsonl"
     methods_path = out_base + ".methods.jsonl"
     d = os.path.dirname(out_base)
@@ -134,6 +170,9 @@ def mine(repo: str, out_base: str, ref: str = "HEAD", first_parent: bool = True,
                     done.add(json.loads(line)["sha"])
                 except Exception:
                     continue
+    dropped = _discard_orphans(methods_path, done)
+    if dropped:
+        print(f"  discarded {dropped} bytes of an interrupted commit's rows before resuming")
 
     commits = commit_list(repo, ref, first_parent)
     if max_commits:
@@ -142,7 +181,8 @@ def mine(repo: str, out_base: str, ref: str = "HEAD", first_parent: bool = True,
         commits = commits[-recent:]            # the most RECENT N (mature codebase)
     total = len(commits)
     print(f"mining {repo} @ {ref}: {total} commits "
-          f"({'first-parent' if first_parent else 'full ancestry'}), "
+          f"({'first-parent' if first_parent else 'full ancestry'}"
+          f"{', ' + ','.join(sorted(langs)) if langs else ''}), "
           f"{len(done)} already done -> {commits_path} / {methods_path}", flush=True)
 
     work = tempfile.mkdtemp(prefix="cdiv-mine-")
@@ -168,7 +208,7 @@ def mine(repo: str, out_base: str, ref: str = "HEAD", first_parent: bool = True,
                     print(f"  checkout failed at {sha[:10]}: {r.stderr.strip()[:200]}")
                     continue
 
-            shapes = shaper(wt, include_tests)
+            shapes = extract.method_shapes(wt, include_tests, exts)
             ranges = changed_ranges(repo, c["parent"], sha)
             files = {m["file"] for m in shapes}
 
@@ -192,6 +232,7 @@ def mine(repo: str, out_base: str, ref: str = "HEAD", first_parent: bool = True,
                 row = {"sha": sha, "i": i, "atime": c["atime"], **m,
                        "changed": changed, "churn_add": churn}
                 mf.write(json.dumps(row) + "\n")
+            mf.flush()                                   # methods first, then the index row
             cf.write(json.dumps({
                 "sha": sha, "parent": c["parent"], "i": i,
                 "atime": c["atime"], "ctime": c["ctime"],
@@ -200,7 +241,6 @@ def mine(repo: str, out_base: str, ref: str = "HEAD", first_parent: bool = True,
                 "n_changed_methods": len(changed_ids), "changed_methods": changed_ids,
             }) + "\n")
             cf.flush()
-            mf.flush()
             if i % 25 == 0 or i == total - 1:
                 print(f"  [{i + 1}/{total}] {sha[:10]} {len(shapes):>5} methods, "
                       f"{len(changed_ids):>4} changed", flush=True)
@@ -230,10 +270,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="cap to the OLDEST N commits (a quick look at early history)")
     ap.add_argument("--recent", type=int, default=None,
                     help="mine only the most RECENT N commits (the mature codebase)")
+    ap.add_argument("--langs", default=None,
+                    help="comma list of language keys to mine (default: every language)")
     args = ap.parse_args(argv)
     out = args.out or (os.path.basename(os.path.abspath(args.repo.rstrip("/"))) + "-mine")
+    langs = {l.strip() for l in args.langs.split(",") if l.strip()} if args.langs else None
     mine(args.repo, out, args.ref, not args.full_ancestry, args.include_tests,
-         args.max_commits, args.recent)
+         args.max_commits, args.recent, langs)
     return 0
 
 

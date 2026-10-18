@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Step 2 of 4 — draw the sample of Java repositories, with open-source-repository-sampler.
+# Step 3 of 5 — draw the sample of Java repositories, with open-source-repository-sampler.
 #
 # Co-ordination only: the actual work is `open-source-repository-sampler sample`. This runs it
-# with the experiment's criteria and then prints the exact command for step 3.
+# with the experiment's criteria and then prints the exact command for step 4.
 #
-#   ./step2_sample.sh [--out DIR] [any other `open-source-repository-sampler sample` flag]
+#   ./step3_sample.sh [--out DIR] [any other `open-source-repository-sampler sample` flag]
 #
 #   --out DIR   where the two sample files are written   (default sample/)
 #
@@ -59,10 +59,10 @@ CMD=("$SAMPLER" sample
 echo "==> ${CMD[*]}"
 "${CMD[@]}"
 
-NEXT="./step3_run.sh --sample $OUT/open-source-repository-sample.csv"
+NEXT="./step4_run.sh --sample $OUT/open-source-repository-sample.csv"
 if [ "$VENV" != ".venv" ]; then
   NEXT="VENV=$VENV $NEXT"
 fi
 echo
-echo "Step 2 (sample) complete. Next, run the experiment on it:"
+echo "Step 3 (sample) complete. Next, run the experiment on it:"
 echo "    $NEXT"

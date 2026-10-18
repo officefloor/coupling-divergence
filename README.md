@@ -1,65 +1,141 @@
 # Sinew — heavy change-coupling
 
-Find the **sinews** in a codebase: thick bundles of data threaded through chains of methods
-that are repeatedly edited together. A sinew is connective tissue — it bears load under
-tension and is expensive to sever. Most couplings are light capillaries; the few heavy sinews
-are where change concentrates and where refactoring becomes expensive, so they are the ones
-worth reconsidering *before* they strengthen.
+Find the **sinews** in a codebase: bundles of methods that thread the same data down a chain
+and are repeatedly edited together. A sinew is connective tissue — it bears load under tension
+and is expensive to sever. Most couplings are light capillaries; the few heavy sinews are where
+change concentrates and where refactoring becomes expensive, so they are the ones worth
+reconsidering *before* they strengthen.
 
 The philosophy and the full method are in **[`paper/SINEW.md`](paper/SINEW.md)**. In short:
 
-- **Coupling is not conserved.** Any method can manufacture flow (from fields, state, `new`),
-  so there is no closed circuit to reason about by conservation. The quantity that matters is
-  **refactor cost** — how hard a coupling is to cut — and it lives in the heavy tail.
-- **A sinew = heavy × threaded × co-changing.** It builds on *logical / evolutionary coupling*
-  (Gall 1998, Zimmermann 2004) and adds **weight** (parameter data-flow thickness),
-  **direction** (source / joint / sink), the **forward ratio** (the share of a method's own
-  parameters it hands onward unchanged — a conduit threads tramp data) and a
-  **discriminator** (span).
-- **The cost is in the threading, not at the ends.** A sinew's members are the conduits that
-  pass data down a chain; the terminal that consumes it (a stable leaf algorithm, or a library
-  call) rarely changes and rarely shows up. Whether two co-changing methods also call each
-  other is therefore *not* a criterion: a direct call neither creates nor removes the
-  threading cost. Call resolution (internal / external) is recorded as metadata only, so the
-  analysis needs no type resolver and works in any language.
-- **Span is the verdict.** A small tight cluster (span ≤ 3) is an intrinsic contract — leave
-  it. A large one (span ≥ 4) is accidental sprawl — a God-method hub (low symmetry) or a
-  parallel-maintenance clique (high symmetry) to reconsider.
+- **A thread link is data sent and consumed.** Two methods are *thread-linked* when a
+  parameter one of them **forwards** (hands on to another call) is a parameter the other
+  **declares**. Parameters are matched on their **key**: the declared **type** when the type
+  identifies something (`Order`, `RequestContext`), else the **name** — so an untyped language
+  is matched by name, and a parameter of a universal type (`String`, `int`, `List<T>`, a type
+  variable) is matched by name too, because `String` names nothing in particular. No type
+  resolver or call graph is needed, so every language lizard parses is measured the same way.
+- **A bond is a thread link that co-changes.** A sinew = **threaded × co-changing × heavy**.
+  It builds on *logical / evolutionary coupling* (Gall 1998, Zimmermann 2004) and adds
+  **thickness** (the number of parameter keys threaded between the pair); heaviness is
+  co-change count × thickness. Co-change without threading is counted, but is not a sinew.
+- **The cost is in the threading, not at the ends.** Whether two co-changing methods also
+  call each other directly is recorded but is *not* a criterion: a conduit threads data to a
+  terminal through intermediaries.
+- **Span is the verdict.** Heavy bonds are joined into a graph; each component is a sinew. A
+  small one (span ≤ 3) is an intrinsic contract — leave it. A large one (span ≥ 4) is
+  accidental sprawl — a hub or a parallel-maintenance clique to reconsider.
+- **Observed against expected.** Every count is set against a permutation null that keeps
+  each commit's size and each method's change frequency and shuffles who changes together,
+  so a project's heavy bonds, spans and concerns are reported with the probability the null
+  produces as much.
 
 This repository is the **method**, not the data. It contains only the experiment code and its
 documentation; nothing is precomputed. All output is written under a git-ignored results
 directory and is published as the paper's ancillary content, not committed here.
 
-## Replicate the experiment — four steps
+## Pre-registered hypotheses and analysis plan
+
+Fixed before the sample is drawn. Every threshold below is in `sinew/analyze.py` (`PARAMS`)
+and is written into the results file with the environment that produced them.
+
+- **H1 (threading is entangling beyond the known causes).** Across methods alive at the pinned
+  commit, the forward ratio (share of a method's parameters it threads into the project's own
+  code) is positively associated with co-change degree *after partialling out change
+  frequency, size (nloc) and cyclomatic complexity together*. Statistic: partial Spearman with
+  a bootstrap 95% interval per project; pooled across projects by random effects on Fisher's z.
+  Decision: H1 holds if the pooled interval excludes zero and the sign is positive in a
+  majority of projects. Sensitivities: the unrestricted forward ratio (guards and library
+  calls counted), and the pair cap at 10, 20 and 50 changed methods.
+- **H2 (sinews are structure, not chance).** The observed heavy-bond mass, the maximum span
+  and the number of concern clusters exceed what the fixed-marginal permutation null produces
+  (one-sided p from 100 draws per project). Decision: H2 holds in a project when p < 0.05 for
+  heavy mass; the paper reports the share of projects in which it holds.
+- **H3 (sinew strength has predictive value).** Measured at a cut 70% through the mined
+  history, a method's sinew strength (sum over its threaded co-change pairs of k × thickness)
+  predicts its change frequency in the remaining 30% *beyond past change frequency, unweighted
+  past co-change strength, nloc and cyclomatic complexity*. Decision: the pooled partial
+  Spearman interval excludes zero and is positive. The unweighted co-change baseline is
+  reported beside it; only the increment is evidence for the thickness weighting.
+- **Span verdict validation.** The span ≥ 4 rule is a rule, not a result. It is checked by a
+  blind rating of dossiers in which concern clusters are mixed with small (contract) clusters
+  and decoys (co-changing methods that thread nothing), with the truth held in a key file.
+
+Everything else the code prints (typology, the `relate` and `tangle` views) is descriptive
+or exploratory and is labelled so.
+
+### Rating the span verdict with AI raters
+
+`sinew rate` has one or more models read each blind dossier and answer one neutral question:
+would you consolidate the data these methods pass around? The prompt never uses the method's
+vocabulary, the blind dossiers carry no instrument metrics, the decision is a structured field
+asked for before the justification, and every rating is logged with the model, the prompt
+hash, the request id, the raw response and the justification, so anyone can audit or re-run it.
+
+```
+sinew rate --check --save results/rater-check --models claude-opus-5-5   # step 2: verify + save
+sinew dossier <base> --repo <checkout> --blind -o rated/<project>        # concern + contract + decoy
+sinew rate rated/<project>                                               # raters from rater.json
+sinew rate rated/<project> --score                                       # unblind: scorecard.json
+```
+
+`--check` rates the planted history (`sinew/planted.py`) first: a rater that cannot tell the
+planted chain from the planted decoy is rejected before it rates anything real, and the
+raters that pass are saved to `rater.json` for `sinew study --rate`. Rating and scoring are
+separate so a dossier set can be rated before anyone opens the key.
+The scorecard gives, per model, the share of concern, contract and decoy dossiers rated
+"consolidate" (the concern-minus-decoy gap is the discriminant validity of the verdict), each
+model's self-consistency across runs, and Cohen's kappa between models. Different model
+families count as independent raters; repeated runs of one model do not. An AI rater is an
+instrument, not ground truth: report its agreement with a human-rated subset of 20 to 30
+dossiers. `rate` needs the optional pinned dependency (`pip install 'sinew[rate]'`) and
+Anthropic credentials in the environment; it defaults to `claude-opus-5-5` at high effort,
+with Anthropic's server-side default fallback so a safety decline becomes a rating by the
+fallback model (recorded as `served_by`) rather than a gap.
+
+## Replicate the experiment — five steps
 
 ```
 ./step1_setup.sh                 # pinned, vendored dependencies (runs ./setup.sh)
-./step2_sample.sh                # draw the sample of Java repositories -> sample/
-./step3_run.sh                   # mine + analyse every usable repository of the sample
-./step4_analyse.sh results/<date>   # results → the paper's tables
+./step2_rater.sh                 # choose + VERIFY the AI raters on planted ground truth -> rater.json
+./step3_sample.sh                # draw the sample of Java repositories -> sample/
+./step4_run.sh                   # mine + analyse every usable repository; rate blind dossiers
+./step5_analyse.sh results/<date>   # results → the paper's tables
 ```
 
 Each step ends by printing the **exact command for the next step**, with its parameters
 filled in, so a reviewer only has to copy what is printed. The `stepN_*.sh` scripts only
-co-ordinate; the work is done by `setup.sh`, `open-source-repository-sampler`, `sinew study`
-and `paper/make_tables.py`, which
-they call (and echo) unchanged. Everything they produce is generated by code: data under the
-git-ignored `results/` directory, and tables in `paper/tables.md` / `paper/aggregate.tex`
-(also git-ignored).
+co-ordinate; the work is done by `setup.sh`, `sinew rate --check`,
+`open-source-repository-sampler`, `sinew study` and `paper/make_tables.py`, which they call
+(and echo) unchanged. Everything they produce is generated by code: data under the git-ignored
+`results/` directory, and tables in `paper/tables.md` / `paper/aggregate.tex` (also
+git-ignored).
 
-`./step3_run.sh --help` lists its options (`--sample`, `--out`, `--recent`, `--lib-dir`).
+Step 2 runs **first among the judgment calls**: it has the chosen model (default
+`claude-opus-5-5`) rate the blind dossiers of a planted history whose answer is known, prints
+the scorecard, and saves the raters to `rater.json` only if each told the planted chain from
+the decoy. Step 4 reads `rater.json`, so the same raters, runs and effort carry through the
+study; `./step2_rater.sh --skip` runs the study without AI rating. Commit `rater.json` with the
+sample. `./step2_rater.sh --help`, `./step4_run.sh --help` (`--sample`, `--out`, `--recent`,
+`--lib-dir`, `--no-rate`) and `sinew study --help` (`--null`, `--bootstrap`,
+`--all-languages`, `--rate`) list the options.
 
 ## What is recorded, per method, at every commit
 
 The raw mine (`results/<date>/mines/<owner>__<name>.methods.jsonl`) keeps, for every
 implemented method at every mined commit: identity and placement (file, qualified name, line
-range); the **declared parameter count and names** (`params`, `param_names`); complexity (`cc`, `cognitive`, `nloc`, `tokens`, `nesting`); every outgoing call with its
-argument count, which of the method's own parameters it **forwards unchanged** (`fwd`) and its
-kind (internal / external); the rollups `out_args_*`, `n_calls_*`,
-`fwd_args`, `fwd_params`, `fwd_ratio`, `fwd_names`; and whether this commit changed the method
-and by how many added lines. The derived panel (`sinew analyze <base> -o panel.csv`) adds the
-arguments arriving from resolved callers (`in_args`, `in_calls`) and per-commit deltas, so
-parameter counts, inbound and forwarded flow can all be analysed later against change.
+range); the declared parameters — **names, types and match keys** (`param_names`,
+`param_types`, `param_keys`); complexity (`cc`, `cognitive`, `nloc`, `tokens`, `nesting`);
+every outgoing call with its argument count, which of the method's own parameters it
+**forwards** (`fwd`, as a bare identifier or the value of a named argument) and its kind
+(internal / external); the rollups `out_args_*`, `n_calls_*`, and the forward metrics
+`fwd_args`, `fwd_params`, `fwd_ratio`, `fwd_names`, `fwd_keys` (over threading calls:
+internal callees that are not guards, loggers or formatters) with their unrestricted twins
+`*_any`; and whether this commit changed the method and by how many added lines. Changes are
+detected ignoring whitespace and blank lines, so a reformat is not a change. Anonymous
+functions and Java anonymous-class methods belong to the method that encloses them; overloads
+share one identity and take the widest overload's shape. The derived panel
+(`sinew analyze <base> -o panel.csv`) adds per-commit deltas.
 
 ## The sample
 
@@ -68,10 +144,9 @@ The repositories are drawn by
 a separate tool, so the population is chosen independently of this experiment. The same release
 (`open-source-repository-sampler==0.1.0` from PyPI, pinned in `sinew/deps.py` and vendored and
 validated by `setup.sh`) both draws the sample in step 2 and runs the clone loop over it in
-step 3. `./step2_sample.sh` runs it with this experiment's
-criteria, written out in the script:
+step 4. `./step3_sample.sh` runs it with this experiment's criteria, written out in the script:
 
-- Java by default (`./step2_sample.sh --langs java,python,go` draws a multi-language sample;
+- Java by default (`./step3_sample.sh --langs java,python,go` draws a multi-language sample;
   the target is per language), across GitHub's popularity tiers (high >5000 stars, mid
   1000–5000, low 200–999), seeded and stratified, grown until there are 30 usable
   repositories per language;
@@ -79,17 +154,19 @@ criteria, written out in the script:
 - at least 50 methods in at least 15 source files with a method;
 - the author's own ecosystem excluded, as a conflict-of-interest guard.
 
-It writes two files into `sample/`:
-
-- `open-source-repository-sample.csv` — every candidate drawn, usable or excluded with its
-  reason, each pinned to the commit that met the criteria;
-- `open-source-repository-sample.derivation.json` — how the sample was drawn and how to redo it.
-
+It writes two files into `sample/`: `open-source-repository-sample.csv` (every candidate drawn,
+usable or excluded with its reason, each pinned to the commit that met the criteria) and
+`open-source-repository-sample.derivation.json` (how the sample was drawn and how to redo it).
 They are the experiment's population, and go into the paper's ancillary data unchanged. Commit
 them once drawn, so the population is pinned in the repository.
 
-**Skip step 2** to run on an existing sample, such as the paper's or another study's, so both
-studies use exactly the same code. Pass it with `./step3_run.sh --sample <csv>`.
+**Skip step 3** to run on an existing sample, such as the paper's or another study's, so both
+studies use exactly the same code. Pass it with `./step4_run.sh --sample <csv>`.
+
+A repository is mined on the files of the **language it was sampled as** (a Java project's
+JavaScript front end is not mixed into its co-change graph); `--all-languages` lifts that.
+Source discovery mirrors the sampler's rules, so the code a repository was judged usable on is
+the code that is mined.
 
 ## Setup — one script, no manual steps
 
@@ -100,49 +177,78 @@ studies use exactly the same code. Pass it with `./step3_run.sh --sample <csv>`.
 
 `setup.sh` creates a virtualenv, vendors the **exact pinned** dependencies into a known
 `./lib` directory (git-ignored), installs them from there, installs this package, and
-validates every version. The pins are the single source of truth in
-`sinew/deps.py` and are re-validated at every run, so results are reproducible.
-Point the vendored deps elsewhere with `LIB_DIR=/path ./setup.sh`, then run with
-`--lib-dir /path` (default `./lib`, or `$SINEW_LIB`).
+validates every version. The pins are the single source of truth in `sinew/deps.py` and are
+re-validated at every run, so results are reproducible. Point the vendored deps elsewhere with
+`LIB_DIR=/path ./setup.sh`, then run with `--lib-dir /path` (default `./lib`, or `$SINEW_LIB`).
 
-The extractor covers **any language lizard parses**, Java included, through one instrument:
-lizard's function list (name, line range, parameter names, complexity) plus a lexical call
-scan that finds every call site, counts its arguments and notes which of the method's own
-parameters it forwards unchanged. One tool for every language keeps every measure comparable
-across a multi-language sample. A call is tagged internal when its callee name is a function
-defined in the tree and external otherwise; that tag is metadata only. The sampler needs an
-authenticated `gh` CLI.
+The extractor covers **any language lizard parses** through one instrument: lizard's function
+list (name, line range, parameter text, complexity) plus a lexical call scan that finds every
+call site, counts its arguments and notes which of the method's own parameters it forwards.
+Parameter names and types are parsed from lizard's full parameter text per language family
+(lizard's bare name list is wrong for Go and TypeScript). The sampler needs an authenticated
+`gh` CLI.
 
 ## Run
 
-The whole experiment across a sample of repositories is one command (what `step3_run.sh` runs):
+The whole experiment across a sample of repositories is one command (what `step4_run.sh` runs):
 
 ```
-sinew study --sample sample/open-source-repository-sample.csv   # mine, flag outliers, aggregate, dossiers, predict
+sinew study --sample sample/open-source-repository-sample.csv
 ```
 
 The sampler's run loop clones each usable repository **deep**: every commit up to its pinned
 commit, and none after, so the mined history ends exactly where the sample says. The study
-mines its recent history (every method's shape at every commit), derives the sinews, applies
-the per-project outlier test, and emits an inspection **dossier** per flagged cluster, with
-member source and commit messages read from the clone. The clone is then deleted, so disk use
-stays at one repository. Finally it writes the aggregate and the predictive-value test.
-Everything lands under `results/<date>/` (git-ignored). The run is resumable: re-running skips
-repositories the run log records as done, and a partly mined repository resumes its mine.
+mines its recent history (every method's shape at every commit), derives the bonds and spans,
+runs the permutation null, the controls and the predictive test, and emits an inspection
+**dossier** per concern cluster, with member source and commit messages read from the clone.
+The clone is then deleted, so disk use stays at one repository. Everything lands under
+`results/<date>/` (git-ignored):
+
+- `sinew-study.json` — `parameters` (every threshold, the window, the sample path),
+  `environment` (Python, platform, git, lizard, sampler and this code's commit), `projects`
+  (one row per usable repository, **failures included** with their error, so attrition is
+  visible; each row carries the null comparison, the controls with the H1 interval, the
+  sensitivity caps, the commit-window description, the languages at HEAD and the H3
+  predictive test), and `pooled` (the random-effects estimates and the H2 tallies);
+- `clusters.jsonl` — every heavy-bond cluster of every project, as data;
+- `mines/` — the raw mines; `dossiers/` — the concern-cluster dossiers; `run-log.jsonl`;
+- `rated/<project>/` — with `--rate`: the blind dossiers, their key, every rating with its
+  justification (`ratings.jsonl`) and the project's scorecard; `rated/scorecard.json` pools
+  them, and the study file carries the pooled card under `rating`.
+
+The run is resumable: re-running skips repositories the run log records as done, and a partly
+mined repository resumes its mine (the rows of an interrupted commit are discarded first).
 
 Per-repository commands, for inspecting one project:
 
 ```
-sinew mine    <repo>          # raw per-method shape at every commit (JSONL)
-sinew sinew   <base>          # the directional sinew report (conduits, heavy sinews) + span verdict
-sinew tangle  <base>          # the edge-weight ladder + the dynamic (param-growth) test
-sinew relate  <base>          # complexity ↔ coupling ↔ cohesion relationships
-sinew predict <base>          # does PAST sinew predict FUTURE change beyond complexity?
-sinew dossier <base> --repo <checkout>   # inspection dossiers (with source + commit messages)
-sinew analyze <base> -o panel.csv        # the derived per-(commit,method) panel as data
+sinew mine    <repo> [--langs java] # raw per-method shape at every commit (JSONL)
+sinew sinew   <base> [--null N]     # bonds, heavy spans + verdicts, null, controls
+sinew predict <base>                # does PAST sinew predict FUTURE change beyond the baselines?
+sinew dossier <base> --repo <checkout> [--blind]   # dossiers (+ contracts and decoys, with a key)
+sinew analyze <base> -o panel.csv   # the derived per-(commit,method) panel as data
+sinew relate  <base>                # EXPLORATORY: complexity ↔ coupling ↔ cohesion
+sinew tangle  <base>                # EXPLORATORY: edge-weight ladder + param-growth test
 ```
 
 (`<base>` is a mine path written by `sinew mine`, i.e. `<base>.methods.jsonl` / `.commits.jsonl`.)
+
+## Known limitations, stated
+
+- **Survivorship.** Bonds are measured among methods alive at the pinned commit; a sinew that
+  was refactored away inside the window is invisible. The predictive test reports how many
+  methods present at the cut were gone by the end.
+- **Co-change granularity differs between projects.** A merge-based history walked
+  first-parent yields pull-request-sized units; a squash or rebase history yields small ones.
+  Each project's commit-size distribution, calendar span and the share of multi-method commits
+  the cap excludes are recorded, and the main counts are re-run at caps of 10, 20 and 50.
+- **Types are as lizard reports them.** Java generics are erased (`List<Order>` arrives as
+  `List`, a universal type, so such a parameter is matched by name); Go's grouped parameters
+  (`a, b int`) leave the first untyped. The share of parameter keys that are types is recorded
+  per project.
+- **Identity is (file, qualified name).** A renamed or moved method starts a new thread.
+- **Name-only call resolution** backs the exploratory `relate` and `tangle` views, not the
+  study's claims.
 
 ## The pipeline
 
@@ -151,10 +257,10 @@ repository git history
       │  sinew mine            → results/<date>/mines/<owner>__<name>.{methods,commits}.jsonl   (raw, append-only)
       ▼
    analysis (sinew/analyze.py)
-      │  in-coupling, directional in/out, forward ratio, co-change, heavy sinews, span clusters
+      │  thread links (type/name keys) · co-change · bonds · heavy spans · permutation null · controls
       ▼
    study (sinew/sinew_study.py)
-      │  per-project outlier test · aggregate · predictive-value test · dossiers
+      │  per project: sensitivity, window, predictive test, dossiers · pooled estimates
       ▼
 results/<date>/   (git-ignored data)
       │
@@ -166,25 +272,42 @@ Nothing is calculated outside this code: the raw mine, every derived statistic a
 table in the paper is produced by a script in this repository, so each step can be
 independently inspected and the whole experiment re-run by anyone.
 
+## Tests
+
+```
+. .venv/bin/activate && python -m unittest discover -s tests -q
+```
+
+The suite includes a ground-truth test: a synthetic history with a planted four-method chain
+that threads `Order` and `Ctx` and co-changes eight times, a planted pair that co-changes as
+often but threads nothing, and a planted pair that threads but never changes. The chain must
+come out as the one heavy span (a concern), with a null p below 0.1; neither of the others may
+form a bond.
+
 ## Layout
 
 ```
 sinew/   the experiment code (package)
-  discover.py          source-file discovery, any language (excludes tests/deps/generated)
+  discover.py          source-file discovery, any language (the sampler's exclusion rules)
   extract.py           per-checkout extraction entry point + per-language file counts
-  extract_common.py    the per-method record contract + the forward-metric rollups
-  lizard_extract.py    per-method shape via lizard + lexical call sites (every language)
-  cognitive.py         vendored cognitive-complexity estimator
-  mine.py              the full-history miner (detached-worktree walk, resumable)
-  analyze.py           derived views: in-coupling, co-change, tangle, relate, sinew, span verdict
-  sinew_study.py       cross-project study: outliers, aggregate, dossiers, predictive test
+  extract_common.py    the per-method record contract, guard callees, the forward rollups
+  lizard_extract.py    per-method shape via lizard: parameter names/types/keys, call sites, forwards
+  cognitive.py         descriptive cognitive-complexity estimator (no claim depends on it)
+  mine.py              the full-history miner (detached-worktree walk, whitespace-insensitive, resumable)
+  analyze.py           PARAMS; thread links, bonds, spans, permutation null, statistics; exploratory views
+  sinew_study.py       cross-project study: rows, sensitivity, pooling, dossiers (blind option), predictive test
+  rate.py              AI rating of blind dossiers: logged decisions + justifications, scorecards, the check
+  planted.py           the synthetic history with known ground truth (tests + the rater check)
   deps.py              pinned dependency versions + start-up validation
   cli.py               the `sinew` command
+tests/test_sinew.py    the self-tests, including the planted-sinew ground truth
 paper/                 SINEW.md (the method) + scripts to transform results/ for publication
 step1_setup.sh         step 1: setup         (co-ordinates setup.sh)
-step2_sample.sh        step 2: the sample    (co-ordinates open-source-repository-sampler)
-step3_run.sh           step 3: run the study (co-ordinates `sinew study`)
-step4_analyse.sh       step 4: paper tables  (co-ordinates paper/make_tables.py)
+step2_rater.sh         step 2: the raters    (co-ordinates `sinew rate --check --save`)
+step3_sample.sh        step 3: the sample    (co-ordinates open-source-repository-sampler)
+step4_run.sh           step 4: run the study (co-ordinates `sinew study [--rate]`)
+step5_analyse.sh       step 5: paper tables  (co-ordinates paper/make_tables.py)
+rater.json             the verified raters, once chosen: models, runs, effort, check results
 setup.sh               one-step, dependency-pinned, reproducible setup
 sample/                the sample, once drawn: open-source-repository-sample.csv + .derivation.json
 ```

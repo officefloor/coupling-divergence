@@ -17,7 +17,8 @@ def languages(root: str, include_tests: bool = False) -> dict:
                         for f in discover.source_files(root, include_tests)))
 
 
-def method_shapes(root: str, include_tests: bool = False) -> list[dict]:
-    """Every implemented method of the checkout, across languages, as raw records in the
-    extract_common contract."""
-    return lizard_extract.method_shapes(root, include_tests)
+def method_shapes(root: str, include_tests: bool = False, exts: set | None = None) -> list[dict]:
+    """Every implemented method of the checkout, across languages (or only the files with an
+    extension in `exts`), as raw records in the extract_common contract."""
+    files = discover.source_files(root, include_tests, exts)
+    return lizard_extract.method_shapes(root, include_tests, files)

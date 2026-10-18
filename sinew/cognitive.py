@@ -1,10 +1,10 @@
-"""Language-agnostic Cognitive Complexity (Campbell, 2018).
+"""Language-agnostic Cognitive Complexity (Campbell, 2018), estimated from source text.
 
-ImpactGate's own estimator, computed over one function's source text. It is NOT the
-certified SonarSource implementation; it is a deliberately simple, faithful approximation
-whose numbers are calibrated against PMD (Java) and eslint-plugin-sonarjs (TypeScript) in
-the test suite. It powers an ABSOLUTE per-method gate, and for a gate cross-checkpoint /
-cross-PR CONSISTENCY matters more than matching a third party's exact value.
+A parser-free approximation of SonarSource's definition, carried over from the author's
+earlier tooling. It is NOT the certified SonarSource implementation and is not calibrated
+against one in this repository: it is recorded in the mine as a descriptive complexity
+column only. No claim in the study depends on it (the controls use cyclomatic complexity
+from lizard and nloc).
 
 Method (the parts of Campbell's rules that a parser-free scan can carry faithfully):
 

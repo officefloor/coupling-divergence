@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sinew"
 version = "0.1.0"
-description = "Find heavy latent change-coupling (sinews): thick, repeatedly co-changed, call-edge-free method bundles that are expensive to refactor."
+description = "Find sinews: thread-linked, repeatedly co-changed method bundles -- a parameter one method forwards and another consumes -- that are expensive to refactor."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -34,6 +34,10 @@ dependencies = [
     "lizard==1.23.0",
     "open-source-repository-sampler==0.1.0",
 ]
+
+[project.optional-dependencies]
+# `sinew rate` only: the AI rating of blind dossiers. Pinned; validated when `rate` runs.
+rate = ["anthropic==1.15.0"]
 
 [project.scripts]
 sinew = "sinew.cli:main"

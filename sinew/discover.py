@@ -2,6 +2,12 @@
 source files that are the project's own maintained code, excluding tests, dependencies, build
 output and generated/vendored blobs, and say which language each file is. This is the only
 shared file-system concern; the per-method shape extraction is in `lizard_extract`.
+
+The rules mirror open-source-repository-sampler's, so the code a repository was judged
+usable on is the code that is mined: vendored trees are skipped wherever they sit, but build
+and output directory names (`target`, `build`, `out`, `generated`, ...) are skipped at the
+repository ROOT only, because the same names are ordinary package names deeper in a tree
+(`org/springframework/aop/target`).
 """
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ from .extract_common import COMPLEXITY_FIELDS  # noqa: F401  (re-exported for ca
 # where it has one, so a project's detected language and its sampled stratum agree.
 LANG_BY_EXT = {
     ".java": "java",
-    ".kt": "kotlin", ".scala": "scala", ".groovy": "groovy",
+    ".kt": "kotlin", ".kts": "kotlin", ".scala": "scala", ".groovy": "groovy",
     ".py": "python", ".pyw": "python", ".pyi": "python",
     ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript",
     ".go": "go", ".rb": "ruby", ".php": "php", ".rs": "rust", ".cs": "c#",
@@ -40,11 +46,17 @@ _TEST_FILE = re.compile(
     r"|_(?:unit)?test\.(?:c|cc|cpp|cxx)"
     r"|(?:^|/)tests\.rs)$", re.I)
 
-# Directories that are not the project's own code: dependencies, build output, and vendored
-# or generated trees.
-_SKIP_DIRS = {".git", "node_modules", "build", "target", "dist", ".venv", "venv",
-              "vendor", "vendored", "third_party", "thirdparty", "third-party",
-              "generated", "externals", "external", "deps", ".gradle", "out"}
+# Directories that hold other people's code, wherever they sit in the tree.
+_VENDOR_DIRS = {".git", "node_modules", "vendor", "vendored", "third_party", "thirdparty",
+                "third-party", "bower_components"}
+# Build output and environments: skipped at the repository root ONLY (see module doc).
+_BUILD_DIRS = {"build", "target", "dist", "out", ".venv", "venv", ".gradle", "generated",
+               "externals", "external", "deps"}
+# Generated or minified files, by the common naming conventions (after Linguist's).
+_GENERATED_FILE = re.compile(
+    r"(?:[.-]min\.(?:js|css)|\.bundle\.js|\.pb\.(?:go|cc|h|rs|swift)|_pb2(?:_grpc)?\.py"
+    r"|\.pb(?:objc)?\.(?:m|h)|\.g\.(?:cs|dart)|\.designer\.cs|_generated\.go|\.gen\.go"
+    r"|\.generated\.[a-z]+|\.d\.ts|\.tab\.[ch]|\.yy\.[ch])$", re.I)
 
 # A source file larger than this is a generated/vendored blob, not hand-maintained code.
 MAX_FILE_BYTES = 1_000_000
@@ -55,21 +67,30 @@ def language(rel: str) -> str | None:
     return LANG_BY_EXT.get(os.path.splitext(rel)[1].lower())
 
 
+def exts_for(langs) -> set:
+    """The extensions of the given language keys (e.g. {"java"} -> {".java"})."""
+    want = set(langs)
+    return {e for e, l in LANG_BY_EXT.items() if l in want}
+
+
 def source_files(root: str, include_tests: bool = False, exts: set | None = None) -> list[str]:
     """Repo-relative paths of the source files under `root` that are the project's own
     maintained code, optionally restricted to the extensions in `exts`. Tests, dependency /
-    build / generated directories and oversized blobs are excluded (tests only when
-    include_tests is False)."""
+    build / generated directories, generated files and oversized blobs are excluded (tests
+    only when include_tests is False)."""
     want = SOURCE_EXTS if exts is None else {e.lower() for e in exts}
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-        for fn in filenames:
+        skip = _VENDOR_DIRS | (_BUILD_DIRS if dirpath == root else set())
+        dirnames[:] = sorted(d for d in dirnames if d not in skip)
+        for fn in sorted(filenames):
             if os.path.splitext(fn)[1].lower() not in want:
                 continue
             rel = os.path.relpath(os.path.join(dirpath, fn), root)
             relp = "/" + rel.replace(os.sep, "/")
             if not include_tests and (_TEST_DIR.search(relp) or _TEST_FILE.search(relp)):
+                continue
+            if _GENERATED_FILE.search(fn):
                 continue
             try:
                 if os.path.getsize(os.path.join(dirpath, fn)) > MAX_FILE_BYTES:
