@@ -46,8 +46,10 @@ git-ignored `results/` directory, and tables in `paper/tables.md` / `paper/aggre
 
 The repositories are drawn by
 [open-source-repository-sampler](https://github.com/officefloor/open-source-repository-sampler),
-a separate tool, so the population is chosen independently of this experiment. It is pinned in
-`pyproject.toml` and installed by `setup.sh`. `./step2_sample.sh` runs it with this experiment's
+a separate tool, so the population is chosen independently of this experiment. The same release
+(`open-source-repository-sampler==0.1.0` from PyPI, pinned in `sinew/deps.py` and vendored and
+validated by `setup.sh`) both draws the sample in step 2 and runs the clone loop over it in
+step 3. `./step2_sample.sh` runs it with this experiment's
 criteria, written out in the script:
 
 - Java only, across GitHub's popularity tiers (high >5000 stars, mid 1000–5000, low 200–999),

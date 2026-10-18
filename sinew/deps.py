@@ -16,6 +16,8 @@ import sys
 PINNED = {
     "tree-sitter": "0.23.2",
     "tree-sitter-java": "0.23.5",
+    # draws the sample (step 2) and runs the clone loop over it (step 3)
+    "open-source-repository-sampler": "0.1.0",
 }
 
 DEFAULT_LIB = "lib"
