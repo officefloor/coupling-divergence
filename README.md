@@ -1,12 +1,27 @@
-# Sinew — heavy change-coupling
+# Sinew — data coupled to the control flow
 
-Find the **sinews** in a codebase: bundles of methods that thread the same data down a chain
-and are repeatedly edited together. A sinew is connective tissue — it bears load under tension
-and is expensive to sever. Most couplings are light capillaries; the few heavy sinews are where
-change concentrates and where refactoring becomes expensive, so they are the ones worth
-reconsidering *before* they strengthen.
+A **sinew** is data coupled to the control flow: data that reaches the code needing it only by
+being passed down the call chain. The more data rides on the flow, the stronger the sinew, and
+the harder the code is to refactor. Dependency injection weakens sinews; OfficeFloor's function
+injection removes them from the flow. The study tests whether sinews are an **early marker of
+complexity concentrating into god classes and methods**, as identified by the companion
+[complexity-concentration study](https://github.com/officefloor/complexity-concentration-study).
 
-The philosophy and the full method are in **[`paper/SINEW.md`](paper/SINEW.md)**. In short:
+**The current thinking is in [`paper/SINEW.md`](paper/SINEW.md)**: the construct, the four
+harms, coupling divergence, the accumulation-versus-delegation signature, the OfficeFloor and DI
+claims, exploratory observations and the draft hypotheses.
+
+> **Status (19 October 2026): on hold.** The complexity-concentration study is still underway.
+> Its results so far are positive but include many false positives, and sinews may be the means
+> to remove them. This study will be taken up again if those results warrant it. The rest of this README documents the harness as built, which
+> implements the earlier framing below (heavy change-coupling, the span ≥ 4 verdict, AI-rated
+> dossiers). Its miner records what the new design needs (per-method parameters, forwarded
+> arguments and complexity at every commit) and will be reused. The hypotheses, rater gate and
+> analysis will be reworked once the complexity-concentration study finishes. The rater check
+> (`step2_rater.sh`) failed on the planted history, and the span rule it was meant to validate
+> is no longer the study's question.
+
+The earlier framing, as the harness implements it:
 
 - **A thread link is data sent and consumed.** Two methods are *thread-linked* when a
   parameter one of them **forwards** (hands on to a call) reaches a method that **declares**
@@ -38,6 +53,10 @@ documentation; nothing is precomputed. All output is written under a git-ignored
 directory and is published as the paper's ancillary content, not committed here.
 
 ## Hypotheses, analysis plan and decision rules
+
+> **Superseded.** These are the harness's hypotheses under the earlier framing. They are kept
+> because the code still implements them; the study's draft hypotheses are in
+> [`paper/SINEW.md`](paper/SINEW.md#draft-hypotheses-not-registered).
 
 Every threshold below is in `sinew/analyze.py` (`PARAMS`) and is written into the results
 file with the environment that produced them; `sinew_study.pooled` applies each decision rule
